@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
+import * as XLSX from 'xlsx';
 import { dbGet, dbSet } from './supabase.js';
 
 const C={bg:'#f0f4f7',card:'#fff',navy:'#253649',accent:'#7a9fa3',accentL:'#9aafb2',accentBg:'#eaf2f3',text:'#1a2a35',muted:'#6b8090',border:'#dce4ea',success:'#2e9e68',successBg:'#e6f5ee',warn:'#b87d00',warnBg:'#fef5dc',danger:'#c03030',dangerBg:'#fdeaea',shadow:'0 1px 4px rgba(37,54,73,0.1)'};
@@ -221,6 +222,88 @@ export default function App(){
   const updSvc=(id,u)=>setCatalog(p=>p.map(x=>x.id===id?{...x,...u}:x));
   const setHrs=v=>setHoursData(p=>({...p,[mk]:+v||0}));
   const setRet=(f,v)=>setRetailData(p=>({...p,[mk]:{...(p[mk]||{rev:0,cogs:0}),[f]:+v||0}}));
+  function downloadReport(){
+    const wb = XLSX.utils.book_new();
+    const provList = isAdmin ? providers : [prov];
+
+    // ── SUMMARY SHEET ──────────────────────────────────
+    const summaryRows = [
+      ['Lumé Haus by CornerstoneMD — Monthly Report', ml],
+      [],
+      ['Provider','Goal','Total Revenue','Service Rev','Retail Rev','Total COGs','Gross Profit','Tips','Inj Rev','Facial Rev',
+       `Inj Comm %','Inj Comm','Facial Comm %','Facial Comm','Retail Comm %','Retail Comm',
+       'Membership Bonuses','Base Pay','Total Commission','TOTAL PAY`],
+    ];
+    provList.forEach(p => {
+      const mk2 = `${p.id}:${month}`;
+      const ents = logData[mk2]||[];
+      const h2 = hoursData[mk2]||0;
+      const ret2 = retailData[mk2]||{rev:0,cogs:0};
+      const c2 = calcComm(ents,p,catalog,h2,ret2);
+      summaryRows.push([
+        p.name, p.monthlyGoal, c2.totRev, c2.svcRev, c2.retRev, c2.totCogs, c2.gp, c2.totTips,
+        c2.injRev, c2.facRev, `${c2.iT.rate}%`, c2.injC, `${c2.fT.rate}%`, c2.facC,
+        `${p.retailCommRate||0}%`, c2.retComm, c2.memB,
+        p.compType==='hourly_goal'?c2.basePay:0, c2.totC, c2.totalPay
+      ]);
+    });
+    const wsSummary = XLSX.utils.aoa_to_sheet(summaryRows);
+    wsSummary['!cols'] = Array(20).fill({wch:16});
+    XLSX.utils.book_append_sheet(wb, wsSummary, 'Summary');
+
+    // ── PER-PROVIDER SERVICE LOG SHEETS ───────────────
+    provList.forEach(p => {
+      const mk2 = `${p.id}:${month}`;
+      const ents = logData[mk2]||[];
+      const h2 = hoursData[mk2]||0;
+      const ret2 = retailData[mk2]||{rev:0,cogs:0};
+      const c2 = calcComm(ents,p,catalog,h2,ret2);
+
+      const rows = [
+        [`${p.name} — ${ml}`],
+        [],
+        ['SUMMARY'],
+        ['Monthly Goal', p.monthlyGoal],
+        ['Total Revenue', c2.totRev],
+        ['Service Revenue', c2.svcRev],
+        ['Retail Revenue', c2.retRev],
+        ['Total COGs', c2.totCogs],
+        ['Gross Profit', c2.gp],
+        ['Tips Collected', c2.totTips],
+        [],
+        ['COMMISSION BREAKDOWN'],
+        ['Injectable Revenue', c2.injRev],
+        [`Injectable Commission (${c2.iT.rate}%)`, c2.injC],
+        ['Facial Revenue', c2.facRev],
+        [`Facial Commission (${c2.fT.rate}%)`, c2.facC],
+        [`Retail Commission (${p.retailCommRate||0}%)`, c2.retComm],
+        [`Membership Bonuses (${c2.memCt} signups × $${p.membershipBonus})`, c2.memB],
+        ...(p.compType==='hourly_goal'?[[`Base Pay ($${p.hourlyRate}/hr × ${c2.hrs} hrs)`, c2.basePay]]:[]),
+        ['TOTAL PAY', c2.totalPay],
+        [],
+        ['SERVICE LOG'],
+        ['Date','Week','Client','Service','Category','Retail Price','Discount','Net Revenue','Tip','Units/Vials','COGs','Profit','Notes'],
+        ...ents.map(e => {
+          const sv = catalog.find(c=>c.id===e.serviceId);
+          const net = (+e.retailPrice||0)-(+e.discount||0);
+          const cogs = e.cogsOverride?(+e.cogsManual||0):cogCalc(sv,e.unitsUsed,e.vialsUsed);
+          const qty = sv?.cogsType==='per_unit'?`${+e.unitsUsed||0} ${sv.unit}s`:sv?.cogsType==='per_vial'?`${+e.vialsUsed||0} vials`:'';
+          return [e.date, `Week ${wk(e.date)}`, e.client, sv?.name||'', sv?.cat||'',
+                  +e.retailPrice||0, +e.discount||0, net, +e.tip||0, qty, cogs, net-cogs, e.notes||''];
+        }),
+        [],
+        ['Retail Monthly Total', ret2.rev, '', 'Retail COGs', ret2.cogs],
+      ];
+
+      const ws = XLSX.utils.aoa_to_sheet(rows);
+      ws['!cols'] = Array(13).fill({wch:18});
+      // Bold the header rows
+      XLSX.utils.book_append_sheet(wb, ws, p.name.slice(0,31));
+    });
+
+    XLSX.writeFile(wb, `LumeHaus_${isAdmin?'AllProviders':prov.name.replace(/ /g,'_')}_${month}.xlsx`);
+  }
+
   function saveLog(){
     if(!entry.client||!entry.serviceId)return;
     const e2={...entry,id:uid(),retailPrice:+entry.retailPrice||(selSvc?.price||0),discount:+entry.discount||0,tip:+entry.tip||0,cogsManual:entry.cogsOverride?(+entry.cogsManual||0):autoCOG};
@@ -249,7 +332,12 @@ export default function App(){
           {!isAdmin&&<span style={{fontFamily:sans,fontSize:'11px',color:'rgba(255,255,255,0.4)',marginLeft:'10px'}}>Welcome, {prov.name}</span>}
         </div>
         <div style={{display:'flex',gap:'10px',alignItems:'center'}}>
-          <input type="month" value={month} onChange={e=>setMonth(e.target.value)} style={{background:'rgba(255,255,255,0.1)',border:`1px solid ${C.accentL}33`,borderRadius:'7px',color:'#fff',padding:'5px 10px',fontFamily:sans,fontSize:'11px',colorScheme:'dark'}}/>
+          <div style={{display:'flex',gap:'6px',alignItems:'center',flexWrap:'wrap'}}>
+            <button onClick={()=>{const d=new Date(month+'-02');d.setMonth(d.getMonth()-1);setMonth(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`);}} style={{background:'rgba(255,255,255,0.1)',border:'1px solid rgba(255,255,255,0.2)',color:'#fff',borderRadius:'6px',padding:'5px 10px',cursor:'pointer',fontFamily:sans,fontSize:'13px'}}>‹</button>
+            <input type="month" value={month} onChange={e=>setMonth(e.target.value)} style={{background:'rgba(255,255,255,0.1)',border:`1px solid ${C.accentL}33`,borderRadius:'7px',color:'#fff',padding:'5px 10px',fontFamily:sans,fontSize:'11px',colorScheme:'dark'}}/>
+            <button onClick={()=>{const d=new Date(month+'-02');d.setMonth(d.getMonth()+1);setMonth(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`);}} style={{background:'rgba(255,255,255,0.1)',border:'1px solid rgba(255,255,255,0.2)',color:'#fff',borderRadius:'6px',padding:'5px 10px',cursor:'pointer',fontFamily:sans,fontSize:'13px'}}>›</button>
+            <button onClick={downloadReport} style={{background:C.accent,border:'none',color:'#fff',borderRadius:'7px',padding:'5px 12px',cursor:'pointer',fontFamily:sans,fontSize:'11px',fontWeight:700}}>⬇ Report</button>
+          </div>
           <button onClick={()=>setAuth(null)} style={{background:'rgba(255,255,255,0.08)',border:'1px solid rgba(255,255,255,0.15)',color:'rgba(255,255,255,0.7)',cursor:'pointer',padding:'5px 12px',borderRadius:'7px',fontFamily:sans,fontSize:'11px'}}>Sign Out</button>
         </div>
       </div>
