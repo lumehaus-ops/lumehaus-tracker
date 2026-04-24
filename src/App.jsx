@@ -38,7 +38,7 @@ const DEF_PROV=[
   {id:'emy',name:'Emy Rodriguez',role:'Injector / Esthetician',color:'#5b8f93',monthlyGoal:15000,hasHourly:false,compType:'commission_first',hourlyRate:0,injectableTiers:[{upTo:4999,rate:20},{upTo:9999,rate:25},{upTo:99999,rate:30}],facialTiers:[{upTo:1999,rate:15},{upTo:4999,rate:20},{upTo:99999,rate:25}],membershipBonus:10,retailCommRate:10},
   {id:'megan',name:'Megan M. Jones',role:'Esthetician / Injector',color:'#4a7d81',monthlyGoal:12000,hasHourly:false,compType:'commission_first',hourlyRate:0,injectableTiers:[{upTo:4999,rate:20},{upTo:9999,rate:25},{upTo:99999,rate:30}],facialTiers:[{upTo:1999,rate:15},{upTo:4999,rate:20},{upTo:99999,rate:25}],membershipBonus:10,retailCommRate:10},
 ];
-const DEF_CREDS={adminUser:'admin',adminPass:'LumeAdmin2025',providers:{lauren:{username:'lauren',password:'Lauren2025'},emy:{username:'emy',password:'Emy2025'},megan:{username:'megan',password:'Megan2025'}}};
+const DEF_CREDS={admins:[{id:'admin1',name:'Crystal-Dior',username:'admin',password:'LumeAdmin2025'}],providers:{lauren:{username:'lauren',password:'Lauren2025'},emy:{username:'emy',password:'Emy2025'},megan:{username:'megan',password:'Megan2025'}}};
 
 function calcComm(entries,prov,catalog,hrs,retail){
   const rows=entries.map(e=>{const s=catalog.find(c=>c.id===e.serviceId);const net=Math.max(0,(+e.retailPrice||0)-(+e.discount||0));const cogs=e.cogsOverride?(+e.cogsManual||0):cogCalc(s,e.unitsUsed,e.vialsUsed);return{...e,net,cogs,tip:+e.tip||0,cat:s?.cat||'other'};});
@@ -63,7 +63,8 @@ function LoginScreen({providers,creds,onLogin}){
   const[user,setUser]=useState(''),pass=useState(''),show=useState(false),err=useState('');
   const[pw,setPw]=pass,[showPw,setShow]=show,[errMsg,setErr]=err;
   function attempt(){
-    if(user.trim()===creds.adminUser&&pw===creds.adminPass){onLogin({role:'admin',providerId:null});return;}
+    const adminMatch=(creds.admins||[]).find(a=>a.username===user.trim()&&a.password===pw);
+    if(adminMatch){onLogin({role:'admin',providerId:null,adminId:adminMatch.id});return;}
     const p=providers.find(p=>{const pc=creds.providers[p.id];return pc&&pc.username===user.trim()&&pc.password===pw;});
     if(p)onLogin({role:'staff',providerId:p.id});else setErr('Incorrect username or password.');
   }
@@ -711,12 +712,24 @@ export default function App(){
               );
             })}
             <div style={cardS()}>
-              <div style={lblS()}>🔐 Admin Credentials</div>
-              <div style={{fontSize:'10px',color:C.muted,marginBottom:'12px'}}>Admin has full access to all data, pay rates, and settings. Keep these secure.</div>
-              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}>
-                <div><label style={lblS()}>Admin Username</label><input value={creds.adminUser} onChange={e=>setCreds(c=>({...c,adminUser:e.target.value}))} style={inp()}/></div>
-                <div><label style={lblS()}>Admin Password</label><input value={creds.adminPass} onChange={e=>setCreds(c=>({...c,adminPass:e.target.value}))} style={inp()}/></div>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'10px'}}>
+                <div>
+                  <div style={lblS()}>🔐 Admin Accounts</div>
+                  <div style={{fontSize:'10px',color:C.muted,marginTop:'2px'}}>Admins have full access to all data, pay rates, and settings. Keep credentials secure.</div>
+                </div>
+                <button style={Btn('primary',{fontSize:'11px'})} onClick={()=>setCreds(c=>({...c,admins:[...(c.admins||[]),{id:uid(),name:'New Admin',username:'admin'+Date.now(),password:'LH2025'}]}))}>+ Add Admin</button>
               </div>
+              {(creds.admins||[]).map((admin,i)=>(
+                <div key={admin.id} style={{background:C.bg,borderRadius:'10px',padding:'14px',marginBottom:'10px',border:`1px solid ${C.border}`}}>
+                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr auto',gap:'10px',alignItems:'end'}}>
+                    <div><label style={lblS()}>Name</label><input value={admin.name} onChange={e=>setCreds(c=>({...c,admins:c.admins.map((a,j)=>j===i?{...a,name:e.target.value}:a)}))} style={inp()}/></div>
+                    <div><label style={lblS()}>Username</label><input value={admin.username} onChange={e=>setCreds(c=>({...c,admins:c.admins.map((a,j)=>j===i?{...a,username:e.target.value}:a)}))} style={inp()}/></div>
+                    <div><label style={lblS()}>Password</label><input value={admin.password} onChange={e=>setCreds(c=>({...c,admins:c.admins.map((a,j)=>j===i?{...a,password:e.target.value}:a)}))} style={inp()}/></div>
+                    <button disabled={(creds.admins||[]).length<=1} onClick={()=>setCreds(c=>({...c,admins:c.admins.filter((_,j)=>j!==i)}))} style={{...Btn('danger',{padding:'8px 10px',fontSize:'11px'}),opacity:(creds.admins||[]).length<=1?0.4:1}}>Remove</button>
+                  </div>
+                </div>
+              ))}
+              <div style={{fontSize:'10px',color:C.warn,padding:'8px 12px',background:C.warnBg,borderRadius:'7px',marginTop:'4px'}}>⚠ Must keep at least one admin account. Changes auto-save.</div>
             </div>
           </>
         )}
