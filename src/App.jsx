@@ -198,16 +198,16 @@ export default function App(){
   useEffect(()=>{if(ready)dbSet('lh4:cat',JSON.stringify(catalog));},[catalog,ready]);
   useEffect(()=>{if(ready)dbSet('lh4:creds',JSON.stringify(creds));},[creds,ready]);
 
-  if(!ready)return<div style={{minHeight:'100vh',background:C.navy,display:'flex',alignItems:'center',justifyContent:'center',color:C.accentL,fontFamily:sans}}>Loading…</div>;
-  if(!auth)return<LoginScreen providers={providers} creds={creds} onLogin={a=>{setAuth(a);if(a.role==='staff'){setSid(a.providerId);setView('dashboard');}else setView('combined');}}/>;
-
-  const isAdmin=auth.role==='admin';
-  const prov=providers.find(p=>p.id===(isAdmin?sid:auth.providerId))||providers[0];
-  const mk=`${prov.id}:${month}`;
+  const isAdmin=auth?.role==='admin';
+  const prov=providers.find(p=>p.id===(isAdmin?sid:auth?.providerId))||providers[0];
+  const mk=prov?`${prov.id}:${month}`:'none';
   const entries=logData[mk]||[];
   const hrs=hoursData[mk]||0;
   const retail=retailData[mk]||{rev:0,cogs:0};
-  const comm=useMemo(()=>calcComm(entries,prov,catalog,hrs,retail),[entries,prov,catalog,hrs,retail]);
+  const comm=useMemo(()=>prov?calcComm(entries,prov,catalog,hrs,retail):{totRev:0,svcRev:0,injRev:0,facRev:0,retRev:0,totCogs:0,retCogs:0,gp:0,totTips:0,memCt:0,memB:0,basePay:0,iT:{rate:0},fT:{rate:0},injC:0,facC:0,totC:0,totalPay:0,above:0,hrs:0},[entries,prov,catalog,hrs,retail]);
+
+  if(!ready)return<div style={{minHeight:'100vh',background:C.navy,display:'flex',alignItems:'center',justifyContent:'center',color:C.accentL,fontFamily:sans}}>Loading…</div>;
+  if(!auth)return<LoginScreen providers={providers} creds={creds} onLogin={a=>{setAuth(a);if(a.role==='staff'){setSid(a.providerId);setView('dashboard');}else setView('combined');}}/>;
   const selSvc=catalog.find(c=>c.id===entry.serviceId);
   const autoCOG=cogCalc(selSvc,entry.unitsUsed,entry.vialsUsed);
   const ml=new Date(month+'-02').toLocaleString('default',{month:'long',year:'numeric'});
