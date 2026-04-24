@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
+import { dbGet, dbSet } from './supabase.js';
 
 const C={bg:'#f0f4f7',card:'#fff',navy:'#253649',accent:'#7a9fa3',accentL:'#9aafb2',accentBg:'#eaf2f3',text:'#1a2a35',muted:'#6b8090',border:'#dce4ea',success:'#2e9e68',successBg:'#e6f5ee',warn:'#b87d00',warnBg:'#fef5dc',danger:'#c03030',dangerBg:'#fdeaea',shadow:'0 1px 4px rgba(37,54,73,0.1)'};
 const sans="'Montserrat',sans-serif",serif="'Cormorant Garamond',Georgia,serif";
@@ -180,22 +181,22 @@ export default function App(){
   useEffect(()=>{
     (async()=>{
       try{
-        const d=await window.storage.get('lh4:data');if(d)setLogData(JSON.parse(d.value));
-        const h=await window.storage.get('lh4:hrs');if(h)setHoursData(JSON.parse(h.value));
-        const r=await window.storage.get('lh4:ret');if(r)setRetailData(JSON.parse(r.value));
-        const p=await window.storage.get('lh4:prov');if(p)setProviders(JSON.parse(p.value));
-        const c=await window.storage.get('lh4:cat');if(c)setCatalog(JSON.parse(c.value));
-        const cr=await window.storage.get('lh4:creds');if(cr)setCreds(JSON.parse(cr.value));
-      }catch{}
+        const d=await dbGet('lh4:data');if(d)setLogData(JSON.parse(d));
+        const h=await dbGet('lh4:hrs');if(h)setHoursData(JSON.parse(h));
+        const r=await dbGet('lh4:ret');if(r)setRetailData(JSON.parse(r));
+        const p=await dbGet('lh4:prov');if(p)setProviders(JSON.parse(p));
+        const c=await dbGet('lh4:cat');if(c)setCatalog(JSON.parse(c));
+        const cr=await dbGet('lh4:creds');if(cr)setCreds(JSON.parse(cr));
+      }catch(e){console.error('Load error',e);}
       setReady(true);
     })();
   },[]);
-  useEffect(()=>{if(ready)window.storage.set('lh4:data',JSON.stringify(logData)).catch(()=>{});},[logData,ready]);
-  useEffect(()=>{if(ready)window.storage.set('lh4:hrs',JSON.stringify(hoursData)).catch(()=>{});},[hoursData,ready]);
-  useEffect(()=>{if(ready)window.storage.set('lh4:ret',JSON.stringify(retailData)).catch(()=>{});},[retailData,ready]);
-  useEffect(()=>{if(ready)window.storage.set('lh4:prov',JSON.stringify(providers)).catch(()=>{});},[providers,ready]);
-  useEffect(()=>{if(ready)window.storage.set('lh4:cat',JSON.stringify(catalog)).catch(()=>{});},[catalog,ready]);
-  useEffect(()=>{if(ready)window.storage.set('lh4:creds',JSON.stringify(creds)).catch(()=>{});},[creds,ready]);
+  useEffect(()=>{if(ready)dbSet('lh4:data',JSON.stringify(logData));},[logData,ready]);
+  useEffect(()=>{if(ready)dbSet('lh4:hrs',JSON.stringify(hoursData));},[hoursData,ready]);
+  useEffect(()=>{if(ready)dbSet('lh4:ret',JSON.stringify(retailData));},[retailData,ready]);
+  useEffect(()=>{if(ready)dbSet('lh4:prov',JSON.stringify(providers));},[providers,ready]);
+  useEffect(()=>{if(ready)dbSet('lh4:cat',JSON.stringify(catalog));},[catalog,ready]);
+  useEffect(()=>{if(ready)dbSet('lh4:creds',JSON.stringify(creds));},[creds,ready]);
 
   if(!ready)return<div style={{minHeight:'100vh',background:C.navy,display:'flex',alignItems:'center',justifyContent:'center',color:C.accentL,fontFamily:sans}}>Loading…</div>;
   if(!auth)return<LoginScreen providers={providers} creds={creds} onLogin={a=>{setAuth(a);if(a.role==='staff'){setSid(a.providerId);setView('dashboard');}else setView('combined');}}/>;
