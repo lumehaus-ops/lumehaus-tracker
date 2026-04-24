@@ -33,9 +33,9 @@ const DEF_CAT=[
   {id:'c13',name:'Membership Signup',cat:'membership',price:0,cogsType:'flat',cogsFlat:0,cogsUnit:0,cogsVial:0,unit:'signup',active:true},
 ];
 const DEF_PROV=[
-  {id:'lauren',name:'Lauren',role:'Esthetician',color:'#7a9fa3',monthlyGoal:8000,hasHourly:true,compType:'hourly_goal',hourlyRate:15,injectableTiers:[{upTo:1999,rate:15},{upTo:3999,rate:20},{upTo:99999,rate:25}],facialTiers:[{upTo:1999,rate:15},{upTo:3999,rate:20},{upTo:99999,rate:25}],membershipBonus:10},
-  {id:'emy',name:'Emy Rodriguez',role:'Injector / Esthetician',color:'#5b8f93',monthlyGoal:15000,hasHourly:false,compType:'commission_first',hourlyRate:0,injectableTiers:[{upTo:4999,rate:20},{upTo:9999,rate:25},{upTo:99999,rate:30}],facialTiers:[{upTo:1999,rate:15},{upTo:4999,rate:20},{upTo:99999,rate:25}],membershipBonus:10},
-  {id:'megan',name:'Megan M. Jones',role:'Esthetician / Injector',color:'#4a7d81',monthlyGoal:12000,hasHourly:false,compType:'commission_first',hourlyRate:0,injectableTiers:[{upTo:4999,rate:20},{upTo:9999,rate:25},{upTo:99999,rate:30}],facialTiers:[{upTo:1999,rate:15},{upTo:4999,rate:20},{upTo:99999,rate:25}],membershipBonus:10},
+  {id:'lauren',name:'Lauren',role:'Esthetician',color:'#7a9fa3',monthlyGoal:8000,hasHourly:true,compType:'hourly_goal',hourlyRate:15,injectableTiers:[{upTo:1999,rate:15},{upTo:3999,rate:20},{upTo:99999,rate:25}],facialTiers:[{upTo:1999,rate:15},{upTo:3999,rate:20},{upTo:99999,rate:25}],membershipBonus:10,retailCommRate:10},
+  {id:'emy',name:'Emy Rodriguez',role:'Injector / Esthetician',color:'#5b8f93',monthlyGoal:15000,hasHourly:false,compType:'commission_first',hourlyRate:0,injectableTiers:[{upTo:4999,rate:20},{upTo:9999,rate:25},{upTo:99999,rate:30}],facialTiers:[{upTo:1999,rate:15},{upTo:4999,rate:20},{upTo:99999,rate:25}],membershipBonus:10,retailCommRate:10},
+  {id:'megan',name:'Megan M. Jones',role:'Esthetician / Injector',color:'#4a7d81',monthlyGoal:12000,hasHourly:false,compType:'commission_first',hourlyRate:0,injectableTiers:[{upTo:4999,rate:20},{upTo:9999,rate:25},{upTo:99999,rate:30}],facialTiers:[{upTo:1999,rate:15},{upTo:4999,rate:20},{upTo:99999,rate:25}],membershipBonus:10,retailCommRate:10},
 ];
 const DEF_CREDS={adminUser:'admin',adminPass:'LumeAdmin2025',providers:{lauren:{username:'lauren',password:'Lauren2025'},emy:{username:'emy',password:'Emy2025'},megan:{username:'megan',password:'Megan2025'}}};
 
@@ -47,13 +47,15 @@ function calcComm(entries,prov,catalog,hrs,retail){
   const retRev=+retail?.rev||0,retCogs=+retail?.cogs||0;
   const totRev=svcRev+retRev,totCogs=rows.reduce((s,r)=>s+r.cogs,0)+retCogs;
   const totTips=rows.reduce((s,r)=>s+r.tip,0),memCt=rows.filter(r=>r.cat==='membership').length;
-  const memB=memCt*(prov.membershipBonus||10),gp=totRev-totCogs;
+  const memB=memCt*(prov.membershipBonus||10);
+  const retComm=retRev*((prov.retailCommRate||0)/100);
+  const gp=totRev-totCogs;
   const iT=(prov.injectableTiers||[]).find(t=>injRev<=t.upTo)||{rate:0};
   const fT=(prov.facialTiers||[]).find(t=>facRev<=t.upTo)||{rate:0};
   let basePay=0,injC=0,facC=0,above=0;
   if(prov.compType==='hourly_goal'){basePay=(+hrs||0)*(+prov.hourlyRate||0);above=Math.max(0,svcRev-(prov.monthlyGoal||0));if(above>0&&svcRev>0){injC=(above*(injRev/svcRev))*(iT.rate/100);facC=(above*(facRev/svcRev))*(fT.rate/100);}}
   else{injC=injRev*(iT.rate/100);facC=facRev*(fT.rate/100);}
-  return{totRev,svcRev,injRev,facRev,retRev,totCogs,retCogs,gp,totTips,memCt,memB,basePay,iT,fT,injC,facC,totC:injC+facC+memB,totalPay:basePay+injC+facC+memB,above,hrs:+hrs||0};
+  return{totRev,svcRev,injRev,facRev,retRev,totCogs,retCogs,gp,totTips,memCt,memB,retComm,basePay,iT,fT,injC,facC,totC:injC+facC+memB+retComm,totalPay:basePay+injC+facC+memB+retComm,above,hrs:+hrs||0};
 }
 
 function LoginScreen({providers,creds,onLogin}){
@@ -204,7 +206,7 @@ export default function App(){
   const entries=logData[mk]||[];
   const hrs=hoursData[mk]||0;
   const retail=retailData[mk]||{rev:0,cogs:0};
-  const comm=useMemo(()=>prov?calcComm(entries,prov,catalog,hrs,retail):{totRev:0,svcRev:0,injRev:0,facRev:0,retRev:0,totCogs:0,retCogs:0,gp:0,totTips:0,memCt:0,memB:0,basePay:0,iT:{rate:0},fT:{rate:0},injC:0,facC:0,totC:0,totalPay:0,above:0,hrs:0},[entries,prov,catalog,hrs,retail]);
+  const comm=useMemo(()=>prov?calcComm(entries,prov,catalog,hrs,retail):{totRev:0,svcRev:0,injRev:0,facRev:0,retRev:0,totCogs:0,retCogs:0,gp:0,totTips:0,memCt:0,memB:0,retComm:0,basePay:0,iT:{rate:0},fT:{rate:0},injC:0,facC:0,totC:0,totalPay:0,above:0,hrs:0},[entries,prov,catalog,hrs,retail]);
 
   if(!ready)return<div style={{minHeight:'100vh',background:C.navy,display:'flex',alignItems:'center',justifyContent:'center',color:C.accentL,fontFamily:sans}}>Loading…</div>;
   if(!auth)return<LoginScreen providers={providers} creds={creds} onLogin={a=>{setAuth(a);if(a.role==='staff'){setSid(a.providerId);setView('dashboard');}else setView('combined');}}/>;
@@ -473,6 +475,7 @@ export default function App(){
               <div style={cardS({marginBottom:0})}><div style={lblS()}>Injectable Comm</div><div style={{fontSize:'22px',fontWeight:300,fontFamily:serif,color:C.navy}}>{f0(comm.injC)}</div><div style={{fontSize:'10px',color:C.muted}}>{f0(comm.injRev)} · {comm.iT.rate}% tier</div></div>
               <div style={cardS({marginBottom:0})}><div style={lblS()}>Facial Comm</div><div style={{fontSize:'22px',fontWeight:300,fontFamily:serif,color:C.navy}}>{f0(comm.facC)}</div><div style={{fontSize:'10px',color:C.muted}}>{f0(comm.facRev)} · {comm.fT.rate}% tier</div></div>
               <div style={cardS({marginBottom:0})}><div style={lblS()}>Membership Bonuses</div><div style={{fontSize:'22px',fontWeight:300,fontFamily:serif,color:C.navy}}>{f0(comm.memB)}</div><div style={{fontSize:'10px',color:C.muted}}>{comm.memCt} × ${prov.membershipBonus}</div></div>
+              <div style={cardS({marginBottom:0})}><div style={lblS()}>Retail Commission</div><div style={{fontSize:'22px',fontWeight:300,fontFamily:serif,color:C.navy}}>{f0(comm.retComm)}</div><div style={{fontSize:'10px',color:C.muted}}>{f0(comm.retRev)} × {prov.retailCommRate||0}%</div></div>
               <div style={{...cardS({marginBottom:0}),background:C.navy}}><div style={{...lblS(),color:C.accentL}}>Total Pay</div><div style={{fontSize:'26px',fontWeight:300,fontFamily:serif,color:'#fff'}}>{f0(comm.totalPay)}</div></div>
             </div>
             <div style={cardS()}>
@@ -493,7 +496,7 @@ export default function App(){
                 ))}
               </div>
               <div style={{marginTop:'14px',padding:'10px 14px',background:C.warnBg,borderRadius:'8px',fontSize:'10px',color:C.warn}}>
-                💡 Tips ({f0(comm.totTips)}) are tracked but NOT included in commission. · Retail revenue is included in Total Revenue but NOT in commission calculations.
+                💡 Tips ({f0(comm.totTips)}) are tracked but NOT included in commission. · Retail commission = Retail Revenue × {prov.retailCommRate||0}% = {f0(comm.retComm)}
               </div>
             </div>
           </>
@@ -597,6 +600,7 @@ export default function App(){
                         <div><label style={lblS()}>Monthly Goal ($)</label><input type="number" value={p.monthlyGoal} onChange={e=>updProv(p.id,{monthlyGoal:+e.target.value||0})} style={inp()}/></div>
                         <div><label style={lblS()}>Tab Color</label><input type="color" value={p.color} onChange={e=>updProv(p.id,{color:e.target.value})} style={{...inp(),padding:'4px',height:'36px'}}/></div>
                         <div><label style={lblS()}>Membership Bonus ($)</label><input type="number" value={p.membershipBonus} onChange={e=>updProv(p.id,{membershipBonus:+e.target.value||0})} style={inp()}/></div>
+                        <div><label style={lblS()}>Retail Commission %</label><input type="number" value={p.retailCommRate||0} onChange={e=>updProv(p.id,{retailCommRate:+e.target.value||0})} style={inp()}/></div>
                         <div><label style={lblS()}>Hourly Option</label><div style={{display:'flex',gap:'8px',alignItems:'center',marginTop:'6px'}}><input type="checkbox" checked={!!p.hasHourly} onChange={e=>updProv(p.id,{hasHourly:e.target.checked})}/><span style={{fontSize:'12px'}}>Enable hourly</span></div></div>
                         {p.hasHourly&&<><div><label style={lblS()}>Hourly Rate ($/hr)</label><input type="number" value={p.hourlyRate} onChange={e=>updProv(p.id,{hourlyRate:+e.target.value||0})} style={inp()}/></div>
                         <div><label style={lblS()}>Comp Mode</label><select value={p.compType} onChange={e=>updProv(p.id,{compType:e.target.value})} style={sel()}><option value="hourly_goal">Mode A: Hourly + Goal</option><option value="commission_first">Mode B: Commission First</option></select></div></>}
