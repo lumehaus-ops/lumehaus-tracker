@@ -63,7 +63,9 @@ function LoginScreen({providers,creds,onLogin}){
   const[user,setUser]=useState(''),pass=useState(''),show=useState(false),err=useState('');
   const[pw,setPw]=pass,[showPw,setShow]=show,[errMsg,setErr]=err;
   function attempt(){
-    const adminMatch=(creds.admins||[]).find(a=>a.username===user.trim()&&a.password===pw);
+    // Support both old format (adminUser/adminPass) and new format (admins array)
+    const adminList = creds.admins || (creds.adminUser ? [{id:'admin1',name:'Admin',username:creds.adminUser,password:creds.adminPass}] : []);
+    const adminMatch = adminList.find(a=>a.username===user.trim()&&a.password===pw);
     if(adminMatch){onLogin({role:'admin',providerId:null,adminId:adminMatch.id});return;}
     const p=providers.find(p=>{const pc=creds.providers[p.id];return pc&&pc.username===user.trim()&&pc.password===pw;});
     if(p)onLogin({role:'staff',providerId:p.id});else setErr('Incorrect username or password.');
@@ -190,7 +192,15 @@ export default function App(){
         const r=await dbGet('lh4:ret');if(r)setRetailData(JSON.parse(r));
         const p=await dbGet('lh4:prov');if(p)setProviders(JSON.parse(p));
         const c=await dbGet('lh4:cat');if(c)setCatalog(JSON.parse(c));
-        const cr=await dbGet('lh4:creds');if(cr)setCreds(JSON.parse(cr));
+        const cr=await dbGet('lh4:creds');
+        if(cr){
+          const parsed=JSON.parse(cr);
+          // Migrate old format to new format if needed
+          if(parsed.adminUser && !parsed.admins){
+            parsed.admins=[{id:'admin1',name:'Admin',username:parsed.adminUser,password:parsed.adminPass}];
+          }
+          setCreds(parsed);
+        }
       }catch(e){console.error('Load error',e);}
       setReady(true);
     })();
