@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import * as XLSX from 'xlsx';
 import { dbGet, dbSet, uploadReceipt, deleteReceipt } from './supabase.js';
+import { ProjectsView, TasksView, VAView } from './ProjectComponents.jsx';
 
 const C={bg:'#f0f4f7',card:'#fff',navy:'#253649',accent:'#7a9fa3',accentL:'#9aafb2',accentBg:'#eaf2f3',text:'#1a2a35',muted:'#6b8090',border:'#dce4ea',success:'#2e9e68',successBg:'#e6f5ee',warn:'#b87d00',warnBg:'#fef5dc',danger:'#c03030',dangerBg:'#fdeaea',shadow:'0 1px 4px rgba(37,54,73,0.1)'};
 const sans="'Montserrat',sans-serif",serif="'Cormorant Garamond',Georgia,serif";
@@ -38,7 +39,7 @@ const DEF_PROV=[
   {id:'emy',name:'Emy Rodriguez',role:'Injector / Esthetician',color:'#5b8f93',monthlyGoal:15000,hasHourly:false,compType:'commission_first',hourlyRate:0,injectableTiers:[{upTo:4999,rate:20},{upTo:9999,rate:25},{upTo:99999,rate:30}],facialTiers:[{upTo:1999,rate:15},{upTo:4999,rate:20},{upTo:99999,rate:25}],membershipBonus:10,retailCommRate:10},
   {id:'megan',name:'Megan M. Jones',role:'Esthetician / Injector',color:'#4a7d81',monthlyGoal:12000,hasHourly:false,compType:'commission_first',hourlyRate:0,injectableTiers:[{upTo:4999,rate:20},{upTo:9999,rate:25},{upTo:99999,rate:30}],facialTiers:[{upTo:1999,rate:15},{upTo:4999,rate:20},{upTo:99999,rate:25}],membershipBonus:10,retailCommRate:10},
 ];
-const DEF_CREDS={admins:[{id:'admin1',name:'Crystal-Dior',username:'admin',password:'LumeAdmin2025'}],providers:{lauren:{username:'lauren',password:'Lauren2025'},emy:{username:'emy',password:'Emy2025'},megan:{username:'megan',password:'Megan2025'}}};
+const DEF_CREDS={admins:[{id:'admin1',name:'Crystal-Dior',username:'admin',password:'LumeAdmin2025'}],providers:{lauren:{username:'lauren',password:'Lauren2025'},emy:{username:'emy',password:'Emy2025'},megan:{username:'megan',password:'Megan2025'}},vas:{}};
 
 function calcComm(entries,prov,catalog,hrs,retail){
   const rows=entries.map(e=>{const s=catalog.find(c=>c.id===e.serviceId);const net=Math.max(0,(+e.retailPrice||0)-(+e.discount||0));const cogs=e.cogsOverride?(+e.cogsManual||0):cogCalc(s,e.unitsUsed,e.vialsUsed);return{...e,net,cogs,tip:+e.tip||0,cat:s?.cat||'other'};});
@@ -63,10 +64,13 @@ function LoginScreen({providers,creds,onLogin}){
   const[user,setUser]=useState(''),pass=useState(''),show=useState(false),err=useState('');
   const[pw,setPw]=pass,[showPw,setShow]=show,[errMsg,setErr]=err;
   function attempt(){
-    // Support both old format (adminUser/adminPass) and new format (admins array)
     const adminList = creds.admins || (creds.adminUser ? [{id:'admin1',name:'Admin',username:creds.adminUser,password:creds.adminPass}] : []);
     const adminMatch = adminList.find(a=>a.username===user.trim()&&a.password===pw);
     if(adminMatch){onLogin({role:'admin',providerId:null,adminId:adminMatch.id});return;}
+    // VA login
+    const vaList=Object.values(creds.vas||{});
+    const vaMatch=vaList.find(v=>v.username===user.trim()&&v.password===pw);
+    if(vaMatch){onLogin({role:'va',vaId:vaMatch.id,vaName:vaMatch.name});return;}
     const p=providers.find(p=>{const pc=creds.providers[p.id];return pc&&pc.username===user.trim()&&pc.password===pw;});
     if(p)onLogin({role:'staff',providerId:p.id});else setErr('Incorrect username or password.');
   }
@@ -924,6 +928,8 @@ export default function App(){
   const[hoursData,setHoursData]=useState({});
   const[retailData,setRetailData]=useState({});
   const[expenses,setExpenses]=useState([]);
+  const[projects,setProjects]=useState([]);
+  const[vaUsers,setVaUsers]=useState([]);
   const[payroll,setPayroll]=useState({});
   const[auth,setAuth]=useState(null);
   const[view,setView]=useState('dashboard');
@@ -949,6 +955,8 @@ export default function App(){
         const p=await dbGet('lh4:prov');if(p)setProviders(JSON.parse(p));
         const c=await dbGet('lh4:cat');if(c)setCatalog(JSON.parse(c));
         const ex=await dbGet('lh4:expenses');if(ex)setExpenses(JSON.parse(ex));
+        const pj=await dbGet('lh4:projects');if(pj)setProjects(JSON.parse(pj));
+        const va=await dbGet('lh4:vausers');if(va)setVaUsers(JSON.parse(va));
         const pr=await dbGet('lh4:payroll');if(pr)setPayroll(JSON.parse(pr));
         const cr=await dbGet('lh4:creds');
         if(cr){
@@ -970,6 +978,8 @@ export default function App(){
   useEffect(()=>{if(ready)dbSet('lh4:cat',JSON.stringify(catalog));},[catalog,ready]);
   useEffect(()=>{if(ready)dbSet('lh4:creds',JSON.stringify(creds));},[creds,ready]);
   useEffect(()=>{if(ready)dbSet('lh4:expenses',JSON.stringify(expenses));},[expenses,ready]);
+  useEffect(()=>{if(ready)dbSet('lh4:projects',JSON.stringify(projects));},[projects,ready]);
+  useEffect(()=>{if(ready)dbSet('lh4:vausers',JSON.stringify(vaUsers));},[vaUsers,ready]);
   useEffect(()=>{if(ready)dbSet('lh4:payroll',JSON.stringify(payroll));},[payroll,ready]);
 
   const isAdmin=auth?.role==='admin';
@@ -1089,8 +1099,8 @@ export default function App(){
   }
   function saveSvc(){if(!newSvc.name)return;setCatalog(p=>[...p,{...newSvc,id:uid()}]);setNewSvc(blankSv());setSvcOpen(false);}
 
-  const navItems=isAdmin?['combined','dashboard','log','commission','catalog','providers','expenses','breakeven','analytics']:['dashboard','log'];
-  const navLabels={'combined':'👥 All Providers','dashboard':'Dashboard','log':'Log','commission':'Commission','catalog':'Catalog','providers':'Providers','expenses':'💰 Expenses','breakeven':'📈 Breakeven','analytics':'📊 Analytics'};
+  const navItems=isAdmin?['combined','dashboard','log','commission','catalog','providers','expenses','breakeven','analytics','projects']:auth?.role==='va'?['projects']:['dashboard','log','tasks'];
+  const navLabels={'combined':'👥 All Providers','dashboard':'Dashboard','log':'Log','commission':'Commission','catalog':'Catalog','providers':'Providers','expenses':'💰 Expenses','breakeven':'📈 Breakeven','analytics':'📊 Analytics','projects':'📋 Projects','tasks':'📋 My Tasks'};
 
   return(
     <div style={{background:C.bg,minHeight:'100vh',fontFamily:sans,color:C.text}}>
@@ -1100,7 +1110,8 @@ export default function App(){
         <div style={{fontFamily:serif,fontSize:'18px',fontWeight:300,letterSpacing:'0.1em',color:'#fff'}}>
           <span style={{color:C.accentL}}>Lumé Haus</span>
           {isAdmin&&<span style={{fontFamily:sans,fontSize:'10px',fontWeight:700,background:'rgba(255,255,255,0.12)',color:C.accentL,padding:'2px 8px',borderRadius:'999px',marginLeft:'10px'}}>ADMIN</span>}
-          {!isAdmin&&<span style={{fontFamily:sans,fontSize:'11px',color:'rgba(255,255,255,0.4)',marginLeft:'10px'}}>Welcome, {prov.name}</span>}
+          {!isAdmin&&auth?.role!=='va'&&<span style={{fontFamily:sans,fontSize:'11px',color:'rgba(255,255,255,0.4)',marginLeft:'10px'}}>Welcome, {prov?.name}</span>}
+          {auth?.role==='va'&&<span style={{fontFamily:sans,fontSize:'11px',color:'rgba(255,255,255,0.4)',marginLeft:'10px'}}>Welcome, {auth.vaName}</span>}
         </div>
         <div style={{display:'flex',gap:'10px',alignItems:'center'}}>
           <div style={{display:'flex',gap:'6px',alignItems:'center',flexWrap:'wrap'}}>
@@ -1115,7 +1126,7 @@ export default function App(){
 
       <div style={{maxWidth:'1140px',margin:'0 auto',padding:'18px 16px'}}>
         {/* PROVIDER TABS (admin) */}
-        {isAdmin&&(
+        {isAdmin&&auth?.role!=='va'&&(
           <div style={{display:'flex',gap:'7px',marginBottom:'14px',flexWrap:'wrap'}}>
             {providers.map(p=>(
               <button key={p.id} onClick={()=>{setSid(p.id);if(view==='combined')setView('dashboard');}} style={{padding:'7px 18px',borderRadius:'20px',border:`2px solid ${(view!=='combined'&&sid===p.id)?p.color:C.border}`,background:(view!=='combined'&&sid===p.id)?p.color:C.card,color:(view!=='combined'&&sid===p.id)?'#fff':C.muted,cursor:'pointer',fontFamily:sans,fontSize:'12px',fontWeight:600,transition:'all 0.15s'}}>
@@ -1137,7 +1148,7 @@ export default function App(){
         {view==='combined'&&isAdmin&&<CombinedView providers={providers} logData={logData} hoursData={hoursData} retailData={retailData} catalog={catalog} month={month}/>}
 
         {/* ── DASHBOARD ── */}
-        {view==='dashboard'&&(
+        {view==='dashboard'&&auth?.role!=='va'&&(
           <>
             <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(145px,1fr))',gap:'10px',marginBottom:'14px'}}>
               {[{l:'Total Revenue',v:f0(comm.totRev),s:'Net after discounts'},{l:isAdmin?'Total Pay':'Est. Pay',v:f0(comm.totalPay),s:prov.compType==='hourly_goal'?'Base + commission':'Commission',hi:true},{l:'Total COGs',v:f0(comm.totCogs),s:'Services + retail'},{l:'Gross Profit',v:f0(comm.gp),s:'Revenue − COGs'},{l:'% to Goal',v:`${gPct.toFixed(0)}%`,s:`Goal: ${f0(prov.monthlyGoal)}`},{l:'Tips',v:f0(comm.totTips),s:'Not in commission'}].map((k,i)=>(
@@ -1230,7 +1241,7 @@ export default function App(){
         )}
 
         {/* ── LOG ── */}
-        {view==='log'&&(
+        {view==='log'&&auth?.role!=='va'&&(
           <div style={cardS()}>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'12px'}}>
               <div><div style={lblS()}>Service Log — {prov.name} · {ml}</div><div style={{fontSize:'10px',color:C.muted}}>Net = Retail − Discount. COGs auto-fill from catalog.</div></div>
@@ -1505,6 +1516,9 @@ export default function App(){
         )}
 
         {view==='expenses'&&isAdmin&&<ExpensesView expenses={expenses} setExpenses={setExpenses} month={month} payroll={payroll} setPayroll={setPayroll} providers={providers} logData={logData} hoursData={hoursData} retailData={retailData} catalog={catalog}/>}
+        {view==='projects'&&isAdmin&&<ProjectsView projects={projects} setProjects={setProjects} providers={providers} vaUsers={vaUsers} setVaUsers={setVaUsers} creds={creds} setCreds={setCreds}/>}
+        {view==='tasks'&&auth?.role!=='admin'&&auth?.role!=='va'&&<TasksView projects={projects} setProjects={setProjects} provId={auth?.providerId} provName={prov?.name}/>}
+        {(view==='projects'||auth?.role==='va')&&auth?.role==='va'&&<VAView projects={projects} setProjects={setProjects} auth={auth} vaUsers={vaUsers}/>}
         {view==='analytics'&&isAdmin&&<AnalyticsView expenses={expenses} payroll={payroll} providers={providers} logData={logData} hoursData={hoursData} retailData={retailData} catalog={catalog} month={month}/>}
         {view==='breakeven'&&isAdmin&&<BreakevenView expenses={expenses} payroll={payroll} providers={providers} logData={logData} hoursData={hoursData} retailData={retailData} catalog={catalog}/>}
 
