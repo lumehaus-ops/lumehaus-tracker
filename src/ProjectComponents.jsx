@@ -37,6 +37,7 @@ export function ProjectsView({projects,setProjects,providers,vaUsers,setVaUsers,
   const[editId,setEditId]=useState(null);
   const[expandId,setExpandId]=useState(null);
   const[filter,setFilter]=useState('All');
+  const[assigneeFilter,setAssigneeFilter]=useState('All');
 
   const allAssignees=[
     ...providers.map(p=>({id:p.id,name:p.name,type:'staff',color:p.color})),
@@ -49,7 +50,11 @@ export function ProjectsView({projects,setProjects,providers,vaUsers,setVaUsers,
   const[taskForm,setTaskForm]=useState(blankT());
   const[addingTaskTo,setAddingTaskTo]=useState(null);
 
-  const filtered=filter==='All'?projects:projects.filter(p=>p.status===filter);
+  const filtered=projects.filter(p=>{
+    const statusMatch=filter==='All'||p.status===filter;
+    const assigneeMatch=assigneeFilter==='All'||p.assignedTo?.includes(assigneeFilter)||(p.tasks||[]).some(t=>t.assignedTo===assigneeFilter);
+    return statusMatch&&assigneeMatch;
+  });
   const stats={
     total:projects.length,
     active:projects.filter(p=>p.status==='In Progress').length,
@@ -124,10 +129,20 @@ export function ProjectsView({projects,setProjects,providers,vaUsers,setVaUsers,
 
           {/* FILTERS + ADD */}
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'12px',flexWrap:'wrap',gap:'10px'}}>
-            <div style={{display:'flex',gap:'6px',flexWrap:'wrap'}}>
+            <div style={{display:'flex',gap:'10px',flexWrap:'wrap',alignItems:'center'}}>
+              <div style={{display:'flex',gap:'6px',flexWrap:'wrap'}}>
               {['All',...STATUS_OPTS].map(f=>(
+
                 <button key={f} onClick={()=>setFilter(f)} style={{padding:'5px 12px',borderRadius:'20px',border:`1px solid ${filter===f?C.navy:C.border}`,background:filter===f?C.navy:C.card,color:filter===f?'#fff':C.muted,cursor:'pointer',fontFamily:sans,fontSize:'11px',fontWeight:600}}>{f}</button>
               ))}
+              </div>
+              <div style={{display:'flex',gap:'8px',alignItems:'center'}}>
+                <span style={{fontSize:'10px',fontWeight:700,color:C.muted,textTransform:'uppercase',letterSpacing:'0.08em',whiteSpace:'nowrap'}}>Assigned to:</span>
+                <select value={assigneeFilter} onChange={e=>setAssigneeFilter(e.target.value)} style={{...sel(),padding:'5px 12px',fontSize:'11px',width:'160px',borderRadius:'20px'}}>
+                  <option value='All'>Everyone</option>
+                  {allAssignees.map(a=><option key={a.id} value={a.id}>{a.name}</option>)}
+                </select>
+              </div>
             </div>
             <button style={Btn('primary')} onClick={()=>{setShowForm(!showForm);setEditId(null);setForm(blankP());}}>
               {showForm?'✕ Cancel':'+ New Project'}
