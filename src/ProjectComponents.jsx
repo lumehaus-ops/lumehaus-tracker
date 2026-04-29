@@ -524,23 +524,49 @@ export function TasksView({projects,setProjects,provId,provName,month,importantD
     setProjects(prev=>prev.map(x=>x.id===projId?{...x,tasks:(x.tasks||[]).map(t=>t.id===taskId?{...t,...updates}:t)}:x));
   }
 
-  const TaskCard=({task})=>(
-    <div style={{padding:'10px 12px',borderRadius:'8px',marginBottom:'8px',
-      background:task.status==='Assistance Needed'?C.dangerBg:task.status==='Approval Needed'?'#f0eaf8':C.bg,
-      border:`1px solid ${task.status==='Assistance Needed'?C.danger+'33':task.status==='Approval Needed'?'#7a4fa355':C.border}`}}>
-      <div style={{display:'flex',alignItems:'center',gap:'10px',marginBottom:'8px'}}>
-        <input type="checkbox" onChange={()=>updateTask(task.projectId,task.id,{status:'Complete'})}/>
-        <div style={{flex:1}}>
-          <div style={{fontSize:'12px',fontWeight:600,color:C.text}}>{task.title}</div>
-          <div style={{fontSize:'10px',color:C.muted,marginTop:'2px'}}>📁 {task.projectTitle}{task.dueDate&&` · 📅 ${task.dueDate}`}</div>
+  const TaskCard=({task})=>{
+    const[editingNote,setEditingNote]=useState(false);
+    const[noteDraft,setNoteDraft]=useState(task.notes||'');
+    return(
+      <div style={{padding:'12px 14px',borderRadius:'8px',marginBottom:'8px',
+        background:task.status==='Assistance Needed'?C.dangerBg:task.status==='Approval Needed'?'#f0eaf8':C.bg,
+        border:`1px solid ${task.status==='Assistance Needed'?C.danger+'33':task.status==='Approval Needed'?'#7a4fa355':C.border}`}}>
+        <div style={{display:'flex',alignItems:'center',gap:'10px',marginBottom:'8px'}}>
+          <input type="checkbox" onChange={()=>updateTask(task.projectId,task.id,{status:'Complete'})}/>
+          <div style={{flex:1}}>
+            <div style={{fontSize:'12px',fontWeight:600,color:C.text}}>{task.title}</div>
+            <div style={{fontSize:'10px',color:C.muted,marginTop:'2px'}}>📁 {task.projectTitle}{task.dueDate&&` · 📅 ${task.dueDate}`}</div>
+          </div>
+          <select value={task.status} onChange={e=>updateTask(task.projectId,task.id,{status:e.target.value})}
+            style={{...sel(),padding:'4px 8px',fontSize:'11px',width:'160px'}}>{STATUS_OPTS.map(o=><option key={o}>{o}</option>)}</select>
         </div>
-        <select value={task.status} onChange={e=>updateTask(task.projectId,task.id,{status:e.target.value})}
-          style={{...sel(),padding:'4px 8px',fontSize:'11px',width:'160px'}}>{STATUS_OPTS.map(o=><option key={o}>{o}</option>)}</select>
+        {/* NOTES DISPLAY */}
+        {task.notes&&!editingNote&&(
+          <div style={{background:'rgba(255,255,255,0.8)',borderRadius:'6px',padding:'8px 12px',marginBottom:'6px',border:`1px solid ${C.border}`}}>
+            <div style={{fontSize:'9px',fontWeight:700,textTransform:'uppercase',letterSpacing:'0.08em',color:C.accent,marginBottom:'4px'}}>📋 Notes</div>
+            <div style={{fontSize:'11px',color:C.text,lineHeight:1.6,whiteSpace:'pre-wrap'}}>{task.notes}</div>
+          </div>
+        )}
+        {/* NOTE EDIT AREA */}
+        {editingNote?(
+          <div style={{marginTop:'4px'}}>
+            <textarea value={noteDraft} onChange={e=>setNoteDraft(e.target.value)} rows={3}
+              placeholder="Add or update note…"
+              style={{...inp(),background:'#fff',fontSize:'11px',padding:'7px 10px',resize:'vertical',lineHeight:1.5,fontFamily:sans}}/>
+            <div style={{display:'flex',gap:'6px',marginTop:'6px'}}>
+              <button onClick={()=>{updateTask(task.projectId,task.id,{notes:noteDraft});setEditingNote(false);}} style={Btn('primary',{padding:'5px 14px',fontSize:'10px'})}>✓ Save</button>
+              <button onClick={()=>{setNoteDraft(task.notes||'');setEditingNote(false);}} style={Btn('secondary',{padding:'5px 10px',fontSize:'10px'})}>Cancel</button>
+            </div>
+          </div>
+        ):(
+          <button onClick={()=>{setNoteDraft(task.notes||'');setEditingNote(true);}}
+            style={{...Btn('secondary',{padding:'4px 12px',fontSize:'10px'}),marginTop:'4px'}}>
+            {task.notes?'✏️ Edit Note':'+ Add Note'}
+          </button>
+        )}
       </div>
-      <input value={task.notes||''} onChange={e=>updateTask(task.projectId,task.id,{notes:e.target.value})}
-        placeholder="Add a note…" style={{...inp(),background:'rgba(255,255,255,0.7)',fontSize:'11px',padding:'5px 10px'}}/>
-    </div>
-  );
+    );
+  };
 
   return(
     <div>
@@ -658,9 +684,17 @@ export function VAView({projects,setProjects,auth,vaUsers,month,importantDetails
                         {STATUS_OPTS.map(o=><option key={o}>{o}</option>)}
                       </select>
                     </div>
+                    {/* NOTES DISPLAY */}
+                    {task.notes&&(
+                      <div style={{background:'rgba(255,255,255,0.8)',borderRadius:'6px',padding:'8px 12px',marginBottom:'8px',border:`1px solid ${C.border}`}}>
+                        <div style={{fontSize:'9px',fontWeight:700,textTransform:'uppercase',letterSpacing:'0.08em',color:C.accent,marginBottom:'4px'}}>📋 Notes</div>
+                        <div style={{fontSize:'11px',color:C.text,lineHeight:1.6,whiteSpace:'pre-wrap'}}>{task.notes}</div>
+                      </div>
+                    )}
                     <div style={{marginBottom:'8px'}}>
-                      <input value={task.notes||''} onChange={e=>updateTask(task.projectId,task.id,{notes:e.target.value})}
-                        placeholder="Add a note or update…" style={{...inp(),background:'rgba(255,255,255,0.7)',fontSize:'11px',padding:'5px 10px'}}/>
+                      <textarea value={task.notes||''} onChange={e=>updateTask(task.projectId,task.id,{notes:e.target.value})}
+                        placeholder="Add a note or update…" rows={2}
+                        style={{...inp(),background:'rgba(255,255,255,0.7)',fontSize:'11px',padding:'7px 10px',resize:'vertical',lineHeight:1.5,fontFamily:sans}}/>
                     </div>
                     <div style={{display:'flex',gap:'10px',alignItems:'center'}}>
                       <label style={{...lblS(),marginBottom:0,whiteSpace:'nowrap'}}>Log Hours:</label>
