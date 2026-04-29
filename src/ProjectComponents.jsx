@@ -44,11 +44,14 @@ export function ProjectsView({projects,setProjects,providers,vaUsers,setVaUsers,
     ...vaUsers.map(v=>({id:v.id,name:v.name,type:'va',color:'#9a6fa3'})),
   ];
 
-  const blankP=()=>({id:uid(),title:'',description:'',assignedTo:[],dueDate:'',priority:'Medium',status:'Not Started',tasks:[],createdAt:new Date().toISOString().split('T')[0],hoursLogged:{}});
+  const blankP=()=>({id:uid(),title:'',description:'',assignedTo:[],dueDate:'',priority:'Medium',status:'Not Started',tasks:[],notes:[],createdAt:new Date().toISOString().split('T')[0],hoursLogged:{}});
   const blankT=()=>({id:uid(),title:'',status:'Not Started',assignedTo:'',notes:'',dueDate:''});
   const[form,setForm]=useState(blankP());
   const[taskForm,setTaskForm]=useState(blankT());
   const[addingTaskTo,setAddingTaskTo]=useState(null);
+  const[addingNoteTo,setAddingNoteTo]=useState(null);
+  const blankNote=()=>({id:uid(),text:'',link:'',createdAt:new Date().toISOString().split('T')[0]});
+  const[noteForm,setNoteForm]=useState(blankNote());
 
   const filtered=projects.filter(p=>{
     const statusMatch=filter==='All'||p.status===filter;
@@ -79,6 +82,15 @@ export function ProjectsView({projects,setProjects,providers,vaUsers,setVaUsers,
     setTaskForm(blankT());setAddingTaskTo(null);
   }
 
+  function addNote(projId){
+    if(!noteForm.text&&!noteForm.link)return;
+    const n2={...noteForm,id:uid()};
+    setProjects(prev=>prev.map(x=>x.id===projId?{...x,notes:[...(x.notes||[]),n2]}:x));
+    setNoteForm(blankNote());setAddingNoteTo(null);
+  }
+  function delNote(projId,noteId){
+    setProjects(prev=>prev.map(x=>x.id===projId?{...x,notes:(x.notes||[]).filter(n=>n.id!==noteId)}:x));
+  }
   function updateTask(projId,taskId,updates){
     setProjects(prev=>prev.map(x=>x.id===projId?{...x,tasks:(x.tasks||[]).map(t=>t.id===taskId?{...t,...updates}:t)}:x));
   }
@@ -350,6 +362,15 @@ export function TasksView({projects,setProjects,provId,provName}){
   const open=myTasks.filter(t=>t.status!=='Complete');
   const done=myTasks.filter(t=>t.status==='Complete');
 
+  function addNote(projId){
+    if(!noteForm.text&&!noteForm.link)return;
+    const n2={...noteForm,id:uid()};
+    setProjects(prev=>prev.map(x=>x.id===projId?{...x,notes:[...(x.notes||[]),n2]}:x));
+    setNoteForm(blankNote());setAddingNoteTo(null);
+  }
+  function delNote(projId,noteId){
+    setProjects(prev=>prev.map(x=>x.id===projId?{...x,notes:(x.notes||[]).filter(n=>n.id!==noteId)}:x));
+  }
   function updateTask(projId,taskId,updates){
     setProjects(prev=>prev.map(x=>x.id===projId?{...x,tasks:(x.tasks||[]).map(t=>t.id===taskId?{...t,...updates}:t)}:x));
   }
@@ -406,6 +427,15 @@ export function VAView({projects,setProjects,auth,vaUsers}){
   const done=myTasks.filter(t=>t.status==='Complete');
   const[hoursInput,setHoursInput]=useState({});
 
+  function addNote(projId){
+    if(!noteForm.text&&!noteForm.link)return;
+    const n2={...noteForm,id:uid()};
+    setProjects(prev=>prev.map(x=>x.id===projId?{...x,notes:[...(x.notes||[]),n2]}:x));
+    setNoteForm(blankNote());setAddingNoteTo(null);
+  }
+  function delNote(projId,noteId){
+    setProjects(prev=>prev.map(x=>x.id===projId?{...x,notes:(x.notes||[]).filter(n=>n.id!==noteId)}:x));
+  }
   function updateTask(projId,taskId,updates){
     setProjects(prev=>prev.map(x=>x.id===projId?{...x,tasks:(x.tasks||[]).map(t=>t.id===taskId?{...t,...updates}:t)}:x));
   }
