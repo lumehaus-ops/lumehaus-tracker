@@ -928,6 +928,7 @@ export default function App(){
   const[hoursData,setHoursData]=useState({});
   const[retailData,setRetailData]=useState({});
   const[expenses,setExpenses]=useState([]);
+  const[importantDetails,setImportantDetails]=useState({});
   const[projects,setProjects]=useState([]);
   const[vaUsers,setVaUsers]=useState([]);
   const[payroll,setPayroll]=useState({});
@@ -955,6 +956,7 @@ export default function App(){
         const p=await dbGet('lh4:prov');if(p)setProviders(JSON.parse(p));
         const c=await dbGet('lh4:cat');if(c)setCatalog(JSON.parse(c));
         const ex=await dbGet('lh4:expenses');if(ex)setExpenses(JSON.parse(ex));
+        const id2=await dbGet('lh4:details');if(id2)setImportantDetails(JSON.parse(id2));
         const pj=await dbGet('lh4:projects');if(pj)setProjects(JSON.parse(pj));
         const va=await dbGet('lh4:vausers');if(va)setVaUsers(JSON.parse(va));
         const pr=await dbGet('lh4:payroll');if(pr)setPayroll(JSON.parse(pr));
@@ -978,6 +980,7 @@ export default function App(){
   useEffect(()=>{if(ready)dbSet('lh4:cat',JSON.stringify(catalog));},[catalog,ready]);
   useEffect(()=>{if(ready)dbSet('lh4:creds',JSON.stringify(creds));},[creds,ready]);
   useEffect(()=>{if(ready)dbSet('lh4:expenses',JSON.stringify(expenses));},[expenses,ready]);
+  useEffect(()=>{if(ready)dbSet('lh4:details',JSON.stringify(importantDetails));},[importantDetails,ready]);
   useEffect(()=>{if(ready)dbSet('lh4:projects',JSON.stringify(projects));},[projects,ready]);
   useEffect(()=>{if(ready)dbSet('lh4:vausers',JSON.stringify(vaUsers));},[vaUsers,ready]);
   useEffect(()=>{if(ready)dbSet('lh4:payroll',JSON.stringify(payroll));},[payroll,ready]);
@@ -1517,8 +1520,8 @@ export default function App(){
 
         {view==='expenses'&&isAdmin&&<ExpensesView expenses={expenses} setExpenses={setExpenses} month={month} payroll={payroll} setPayroll={setPayroll} providers={providers} logData={logData} hoursData={hoursData} retailData={retailData} catalog={catalog}/>}
         {view==='projects'&&isAdmin&&<ProjectsView projects={projects} setProjects={setProjects} providers={providers} vaUsers={vaUsers} setVaUsers={setVaUsers} creds={creds} setCreds={setCreds}/>}
-        {view==='tasks'&&auth?.role!=='admin'&&auth?.role!=='va'&&<TasksView projects={projects} setProjects={setProjects} provId={auth?.providerId} provName={prov?.name}/>}
-        {(view==='projects'||auth?.role==='va')&&auth?.role==='va'&&<VAView projects={projects} setProjects={setProjects} auth={auth} vaUsers={vaUsers}/>}
+        {view==='tasks'&&auth?.role!=='admin'&&auth?.role!=='va'&&<TasksView projects={projects} setProjects={setProjects} provId={auth?.providerId} provName={prov?.name} month={month} importantDetails={importantDetails} setImportantDetails={setImportantDetails}/>}
+        {(view==='projects'||auth?.role==='va')&&auth?.role==='va'&&<VAView projects={projects} setProjects={setProjects} auth={auth} vaUsers={vaUsers} month={month} importantDetails={importantDetails} setImportantDetails={setImportantDetails}/>}
         {view==='analytics'&&isAdmin&&<AnalyticsView expenses={expenses} payroll={payroll} providers={providers} logData={logData} hoursData={hoursData} retailData={retailData} catalog={catalog} month={month}/>}
         {view==='breakeven'&&isAdmin&&<BreakevenView expenses={expenses} payroll={payroll} providers={providers} logData={logData} hoursData={hoursData} retailData={retailData} catalog={catalog}/>}
 
