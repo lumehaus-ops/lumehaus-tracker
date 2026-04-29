@@ -177,7 +177,8 @@ export function ProjectsView({projects,setProjects,providers,vaUsers,setVaUsers,
               const expanded=expandId===proj.id;
               const pct=completePct(proj);
               const assigneeNames=proj.assignedTo?.map(id=>allAssignees.find(a=>a.id===id)?.name||id).join(', ')||'Unassigned';
-              const overdue=proj.dueDate&&new Date(proj.dueDate)<new Date()&&proj.status!=='Complete';
+              const today=new Date().toISOString().split('T')[0];
+              const overdue=proj.dueDate&&proj.dueDate<today&&proj.status!=='Complete';
               return(
                 <div key={proj.id} style={cardS()}>
                   {/* PROJECT HEADER */}
