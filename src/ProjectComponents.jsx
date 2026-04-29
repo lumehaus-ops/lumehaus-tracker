@@ -282,6 +282,41 @@ export function ProjectsView({projects,setProjects,providers,vaUsers,setVaUsers,
                       }
                     </div>
                   )}
+
+                  {/* ── NOTES & LINKS (project level) ── */}
+                  <div style={{marginTop:'14px',borderTop:`1px solid ${C.border}`,paddingTop:'14px'}}>
+                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'10px'}}>
+                      <div style={{fontSize:'10px',fontWeight:700,textTransform:'uppercase',letterSpacing:'0.08em',color:C.accent}}>📝 Notes & Links</div>
+                      <button onClick={()=>setAddingNoteTo(addingNoteTo===proj.id?null:proj.id)} style={Btn('secondary',{padding:'4px 12px',fontSize:'10px'})}>{addingNoteTo===proj.id?'✕ Cancel':'+ Add Note'}</button>
+                    </div>
+                    {addingNoteTo===proj.id&&(
+                      <div style={{background:C.bg,borderRadius:'8px',padding:'12px',marginBottom:'10px',border:`1px solid ${C.border}`}}>
+                        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr auto',gap:'8px',alignItems:'end'}}>
+                          <div><label style={lblS()}>Note *</label><input value={noteForm.text} onChange={e=>setNoteForm(p=>({...p,text:e.target.value}))} placeholder="Type your note here…" style={inp()}/></div>
+                          <div><label style={lblS()}>Live Link (optional)</label><input value={noteForm.link} onChange={e=>setNoteForm(p=>({...p,link:e.target.value}))} placeholder="https://…" style={inp()}/></div>
+                          <button onClick={()=>addNote(proj.id)} style={{...Btn('primary'),padding:'8px 14px',alignSelf:'flex-end'}}>Save</button>
+                        </div>
+                      </div>
+                    )}
+                    {(proj.notes||[]).length===0&&addingNoteTo!==proj.id
+                      ?<div style={{color:C.muted,fontSize:'11px',padding:'6px 0'}}>No notes yet — add links, reminders, or references.</div>
+                      :(proj.notes||[]).map(note=>(
+                        <div key={note.id} style={{display:'flex',alignItems:'flex-start',gap:'10px',padding:'10px 12px',borderRadius:'8px',marginBottom:'6px',background:C.bg,border:`1px solid ${C.border}`}}>
+                          <div style={{flex:1,minWidth:0}}>
+                            <div style={{fontSize:'12px',color:C.text,lineHeight:1.5}}>{note.text}</div>
+                            {note.link&&(
+                              <a href={note.link.startsWith('http')?note.link:`https://${note.link}`} target="_blank" rel="noreferrer"
+                                style={{fontSize:'11px',color:C.accent,fontWeight:600,textDecoration:'none',display:'inline-flex',alignItems:'center',gap:'4px',marginTop:'5px',padding:'3px 10px',background:C.accentBg,borderRadius:'999px'}}>
+                                🔗 {note.link.replace(/^https?:\/\//,'')}
+                              </a>
+                            )}
+                            <div style={{fontSize:'9px',color:C.muted,marginTop:'5px'}}>{note.createdAt}</div>
+                          </div>
+                          <button onClick={()=>delNote(proj.id,note.id)} style={{background:'none',border:'none',color:C.muted,cursor:'pointer',fontSize:'13px',flexShrink:0}}>✕</button>
+                        </div>
+                      ))
+                    }
+                  </div>
                 </div>
               );
             })
