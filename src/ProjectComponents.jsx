@@ -1,3 +1,108 @@
+/* ─── IMPORTANT DETAILS BLOCK ───────────────────────────── */
+export function ImportantDetailsBlock({personId,personName,importantDetails,setImportantDetails}){
+  const details = importantDetails[personId] || {notes:'',links:[]};
+  const[editing,setEditing]=useState(false);
+  const[draft,setDraft]=useState(details.notes||'');
+  const[linkForm,setLinkForm]=useState({label:'',url:''});
+  const[addingLink,setAddingLink]=useState(false);
+
+  function saveNotes(){
+    setImportantDetails(p=>({...p,[personId]:{...(p[personId]||{links:[]}),notes:draft}}));
+    setEditing(false);
+  }
+  function addLink(){
+    if(!linkForm.url)return;
+    const newLink={id:uid(),label:linkForm.label||linkForm.url,url:linkForm.url.startsWith('http')?linkForm.url:`https://${linkForm.url}`};
+    setImportantDetails(p=>({...p,[personId]:{...(p[personId]||{notes:''}),links:[...(p[personId]?.links||[]),newLink]}}));
+    setLinkForm({label:'',url:''});setAddingLink(false);
+  }
+  function delLink(id){
+    setImportantDetails(p=>({...p,[personId]:{...(p[personId]||{notes:''}),links:(p[personId]?.links||[]).filter(l=>l.id!==id)}}));
+  }
+
+  // Simple text renderer: **text** = bold, lines starting with - = bullet
+  function renderNotes(text){
+    if(!text)return null;
+    return text.split('\n').map((line,i)=>{
+      const isBullet=line.trim().startsWith('-');
+      const content=isBullet?line.trim().slice(1).trim():line;
+      const parts=content.split(/\*\*([^*]+)\*\*/g);
+      const rendered=parts.map((p,j)=>j%2===1?<strong key={j}>{p}</strong>:p);
+      return(
+        <div key={i} style={{display:'flex',gap:'6px',marginBottom:'3px',alignItems:'flex-start'}}>
+          {isBullet&&<span style={{color:C.accent,fontWeight:700,fontSize:'14px',lineHeight:'18px',flexShrink:0}}>•</span>}
+          <span style={{fontSize:'12px',color:C.text,lineHeight:'18px'}}>{rendered}</span>
+        </div>
+      );
+    });
+  }
+
+  const hasContent=details.notes||(details.links||[]).length>0;
+
+  return(
+    <div style={{...cardS(),border:`2px solid ${C.accent}33`,background:'#fafcfd',marginBottom:'14px'}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'10px'}}>
+        <div style={{display:'flex',gap:'8px',alignItems:'center'}}>
+          <span style={{fontSize:'16px'}}>📌</span>
+          <div>
+            <div style={{fontWeight:700,fontSize:'13px',color:C.navy}}>Important Details</div>
+            {personName&&<div style={{fontSize:'10px',color:C.muted}}>{personName}</div>}
+          </div>
+        </div>
+        <div style={{display:'flex',gap:'6px'}}>
+          <button onClick={()=>setAddingLink(!addingLink)} style={Btn('secondary',{padding:'5px 12px',fontSize:'10px'})}>🔗 {addingLink?'Cancel':'Add Link'}</button>
+          <button onClick={()=>{setEditing(!editing);setDraft(details.notes||'');}} style={Btn(editing?'primary':'accent',{padding:'5px 12px',fontSize:'10px'})}>{editing?'Cancel':'✏️ Edit Notes'}</button>
+        </div>
+      </div>
+
+      {/* ADD LINK FORM */}
+      {addingLink&&(
+        <div style={{background:C.bg,borderRadius:'8px',padding:'10px 12px',marginBottom:'10px',border:`1px solid ${C.border}`}}>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 2fr auto',gap:'8px',alignItems:'end'}}>
+            <div><label style={lblS()}>Label</label><input value={linkForm.label} onChange={e=>setLinkForm(p=>({...p,label:e.target.value}))} placeholder="e.g. Training Doc" style={inp()}/></div>
+            <div><label style={lblS()}>URL *</label><input value={linkForm.url} onChange={e=>setLinkForm(p=>({...p,url:e.target.value}))} placeholder="https://…" style={inp()}/></div>
+            <button onClick={addLink} style={{...Btn('primary'),padding:'8px 14px',alignSelf:'flex-end'}}>Save</button>
+          </div>
+        </div>
+      )}
+
+      {/* NOTES EDITOR */}
+      {editing&&(
+        <div style={{marginBottom:'10px'}}>
+          <div style={{fontSize:'10px',color:C.muted,marginBottom:'6px'}}>
+            Formatting: <strong>**bold text**</strong> for bold · Start line with <strong>-</strong> for bullet points · Press Enter for new line
+          </div>
+          <textarea value={draft} onChange={e=>setDraft(e.target.value)}
+            placeholder="Add important notes here...&#10;- Use - for bullet points&#10;- Use **bold** for bold text"
+            rows={6}
+            style={{...inp(),resize:'vertical',lineHeight:'1.6',fontFamily:sans,fontSize:'12px',background:'#fff'}}/>
+          <button onClick={saveNotes} style={{...Btn('primary'),marginTop:'8px',padding:'7px 20px'}}>✓ Save Notes</button>
+        </div>
+      )}
+
+      {/* DISPLAY */}
+      {!editing&&(
+        <div>
+          {/* LINKS */}
+          {(details.links||[]).length>0&&(
+            <div style={{display:'flex',gap:'8px',flexWrap:'wrap',marginBottom:details.notes?'10px':'0'}}>
+              {(details.links||[]).map(l=>(
+                <div key={l.id} style={{display:'flex',alignItems:'center',gap:'4px',background:C.accentBg,borderRadius:'999px',padding:'3px 10px 3px 12px',border:`1px solid ${C.accent}44`}}>
+                  <a href={l.url} target="_blank" rel="noreferrer" style={{fontSize:'11px',color:C.accent,fontWeight:700,textDecoration:'none'}}>🔗 {l.label}</a>
+                  <button onClick={()=>delLink(l.id)} style={{background:'none',border:'none',color:C.muted,cursor:'pointer',fontSize:'12px',padding:'0 2px',lineHeight:1}}>×</button>
+                </div>
+              ))}
+            </div>
+          )}
+          {/* NOTES */}
+          {details.notes&&<div style={{marginTop:(details.links||[]).length>0?'0':'0'}}>{renderNotes(details.notes)}</div>}
+          {!hasContent&&<div style={{color:C.muted,fontSize:'11px'}}>No details yet — click "✏️ Edit Notes" to add notes or "🔗 Add Link" to save a link.</div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 import { useState } from 'react';
 
 // These constants and helpers are passed in or defined locally
@@ -389,53 +494,74 @@ export function ProjectsView({projects,setProjects,providers,vaUsers,setVaUsers,
 }
 
 /* ── STAFF TASKS VIEW ── */
-export function TasksView({projects,setProjects,provId,provName}){
+export function TasksView({projects,setProjects,provId,provName,month,importantDetails,setImportantDetails}){
+  const now=new Date();
+  const curMonth=month||`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+  const [yr,mo]=curMonth.split('-').map(Number);
+  const ml=new Date(curMonth+'-02').toLocaleString('default',{month:'long',year:'numeric'});
+
   const myTasks=projects.flatMap(p=>
     (p.tasks||[]).filter(t=>t.assignedTo===provId||p.assignedTo?.includes(provId))
-    .map(t=>({...t,projectId:p.id,projectTitle:p.title,projectStatus:p.status}))
+    .map(t=>({...t,projectId:p.id,projectTitle:p.title}))
   );
   const open=myTasks.filter(t=>t.status!=='Complete');
   const done=myTasks.filter(t=>t.status==='Complete');
 
-  function addNote(projId){
-    if(!noteForm.text&&!noteForm.link)return;
-    const n2={...noteForm,id:uid()};
-    setProjects(prev=>prev.map(x=>x.id===projId?{...x,notes:[...(x.notes||[]),n2]}:x));
-    setNoteForm(blankNote());setAddingNoteTo(null);
-  }
-  function delNote(projId,noteId){
-    setProjects(prev=>prev.map(x=>x.id===projId?{...x,notes:(x.notes||[]).filter(n=>n.id!==noteId)}:x));
-  }
+  const daysInMonth=new Date(yr,mo,0).getDate();
+  const tasksByWeek=[1,2,3,4,5].map(w=>({
+    w,
+    d1:(w-1)*7+1,
+    d2:Math.min(w*7,daysInMonth),
+    tasks:open.filter(t=>{
+      if(!t.dueDate)return w===1;
+      const [ty,tm,td]=t.dueDate.split('-').map(Number);
+      if(ty!==yr||tm!==mo)return w===5;
+      return Math.min(Math.ceil(td/7),5)===w;
+    })
+  }));
+
   function updateTask(projId,taskId,updates){
     setProjects(prev=>prev.map(x=>x.id===projId?{...x,tasks:(x.tasks||[]).map(t=>t.id===taskId?{...t,...updates}:t)}:x));
   }
 
+  const TaskCard=({task})=>(
+    <div style={{padding:'10px 12px',borderRadius:'8px',marginBottom:'8px',
+      background:task.status==='Assistance Needed'?C.dangerBg:task.status==='Approval Needed'?'#f0eaf8':C.bg,
+      border:`1px solid ${task.status==='Assistance Needed'?C.danger+'33':task.status==='Approval Needed'?'#7a4fa355':C.border}`}}>
+      <div style={{display:'flex',alignItems:'center',gap:'10px',marginBottom:'8px'}}>
+        <input type="checkbox" onChange={()=>updateTask(task.projectId,task.id,{status:'Complete'})}/>
+        <div style={{flex:1}}>
+          <div style={{fontSize:'12px',fontWeight:600,color:C.text}}>{task.title}</div>
+          <div style={{fontSize:'10px',color:C.muted,marginTop:'2px'}}>📁 {task.projectTitle}{task.dueDate&&` · 📅 ${task.dueDate}`}</div>
+        </div>
+        <select value={task.status} onChange={e=>updateTask(task.projectId,task.id,{status:e.target.value})}
+          style={{...sel(),padding:'4px 8px',fontSize:'11px',width:'160px'}}>{STATUS_OPTS.map(o=><option key={o}>{o}</option>)}</select>
+      </div>
+      <input value={task.notes||''} onChange={e=>updateTask(task.projectId,task.id,{notes:e.target.value})}
+        placeholder="Add a note…" style={{...inp(),background:'rgba(255,255,255,0.7)',fontSize:'11px',padding:'5px 10px'}}/>
+    </div>
+  );
+
   return(
     <div>
+      <ImportantDetailsBlock personId={provId} personName={provName} importantDetails={importantDetails||{}} setImportantDetails={setImportantDetails||(()=>{})}/>
       <div style={cardS()}>
-        <div style={lblS()}>My Tasks — {provName}</div>
+        <div style={lblS()}>My Tasks — {provName} · {ml}</div>
         <div style={{fontSize:'10px',color:C.muted,marginBottom:'14px'}}>{open.length} open · {done.length} complete</div>
         {myTasks.length===0
           ?<div style={{textAlign:'center',padding:'32px',color:C.muted,fontSize:'13px'}}>No tasks assigned to you yet.</div>
           :<>
-            {open.length>0&&<>
-              <div style={{fontSize:'10px',fontWeight:700,textTransform:'uppercase',letterSpacing:'0.08em',color:C.accent,marginBottom:'8px'}}>Open</div>
-              {open.map(task=>(
-                <div key={task.id} style={{padding:'10px 12px',borderRadius:'8px',marginBottom:'8px',background:task.status==='Assistance Needed'?C.dangerBg:task.status==='Approval Needed'?'#f0eaf8':C.bg,border:`1px solid ${task.status==='Assistance Needed'?C.danger+'33':task.status==='Approval Needed'?'#7a4fa355':C.border}`}}>
-                  <div style={{display:'flex',alignItems:'center',gap:'10px',marginBottom:'8px'}}>
-                    <input type="checkbox" onChange={e=>updateTask(task.projectId,task.id,{status:'Complete'})}/>
-                    <div style={{flex:1}}>
-                      <div style={{fontSize:'12px',fontWeight:600,color:C.text}}>{task.title}</div>
-                      <div style={{fontSize:'10px',color:C.muted,marginTop:'2px'}}>📁 {task.projectTitle}{task.dueDate&&` · 📅 ${task.dueDate}`}</div>
-                    </div>
-                    <select value={task.status} onChange={e=>updateTask(task.projectId,task.id,{status:e.target.value})} style={{...sel(),padding:'4px 8px',fontSize:'11px',width:'160px'}}>{STATUS_OPTS.map(o=><option key={o}>{o}</option>)}</select>
-                  </div>
-                  <input value={task.notes||''} onChange={e=>updateTask(task.projectId,task.id,{notes:e.target.value})} placeholder="Add a note…" style={{...inp(),background:'rgba(255,255,255,0.7)',fontSize:'11px',padding:'5px 10px',color:C.muted}}/>
+            {tasksByWeek.map(({w,d1,d2,tasks:wt})=>wt.length===0?null:(
+              <div key={w} style={{marginBottom:'18px'}}>
+                <div style={{display:'flex',alignItems:'center',gap:'8px',marginBottom:'8px'}}>
+                  <span style={{background:C.navy,color:'#fff',borderRadius:'999px',padding:'2px 12px',fontSize:'9px',fontWeight:700}}>Week {w}</span>
+                  <span style={{fontSize:'10px',color:C.muted}}>{mo}/{d1} – {mo}/{d2} · {wt.length} task{wt.length!==1?'s':''}</span>
                 </div>
-              ))}
-            </>}
+                {wt.map(task=><TaskCard key={task.id} task={task}/>)}
+              </div>
+            ))}
             {done.length>0&&<>
-              <div style={{fontSize:'10px',fontWeight:700,textTransform:'uppercase',letterSpacing:'0.08em',color:C.muted,margin:'14px 0 8px'}}>Completed</div>
+              <div style={{fontSize:'10px',fontWeight:700,textTransform:'uppercase',letterSpacing:'0.08em',color:C.muted,margin:'14px 0 8px'}}>Completed ✓</div>
               {done.map(task=>(
                 <div key={task.id} style={{display:'flex',alignItems:'center',gap:'10px',padding:'8px 12px',borderRadius:'8px',marginBottom:'4px',background:C.successBg,border:`1px solid ${C.success}33`,opacity:0.7}}>
                   <input type="checkbox" checked readOnly/>
@@ -452,8 +578,13 @@ export function TasksView({projects,setProjects,provId,provName}){
 }
 
 /* ── VA VIEW ── */
-export function VAView({projects,setProjects,auth,vaUsers}){
+export function VAView({projects,setProjects,auth,vaUsers,month,importantDetails,setImportantDetails}){
   const va=vaUsers.find(v=>v.id===auth.vaId)||{name:auth.vaName,hourlyRate:0,hoursLogged:{}};
+  const now=new Date();
+  const curMonth=month||`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+  const [yr,mo]=curMonth.split('-').map(Number);
+  const ml=new Date(curMonth+'-02').toLocaleString('default',{month:'long',year:'numeric'});
+
   const myTasks=projects.flatMap(p=>
     (p.tasks||[]).filter(t=>t.assignedTo===auth.vaId)
     .map(t=>({...t,projectId:p.id,projectTitle:p.title}))
@@ -461,25 +592,29 @@ export function VAView({projects,setProjects,auth,vaUsers}){
   const open=myTasks.filter(t=>t.status!=='Complete');
   const done=myTasks.filter(t=>t.status==='Complete');
   const[hoursInput,setHoursInput]=useState({});
+  const totalHours=Object.values(va.hoursLogged||{}).reduce((s,h)=>s+(+h||0),0);
 
-  function addNote(projId){
-    if(!noteForm.text&&!noteForm.link)return;
-    const n2={...noteForm,id:uid()};
-    setProjects(prev=>prev.map(x=>x.id===projId?{...x,notes:[...(x.notes||[]),n2]}:x));
-    setNoteForm(blankNote());setAddingNoteTo(null);
-  }
-  function delNote(projId,noteId){
-    setProjects(prev=>prev.map(x=>x.id===projId?{...x,notes:(x.notes||[]).filter(n=>n.id!==noteId)}:x));
-  }
+  const daysInMonth=new Date(yr,mo,0).getDate();
+  const tasksByWeek=[1,2,3,4,5].map(w=>({
+    w,
+    d1:(w-1)*7+1,
+    d2:Math.min(w*7,daysInMonth),
+    tasks:open.filter(t=>{
+      if(!t.dueDate)return w===1;
+      const [ty,tm,td]=t.dueDate.split('-').map(Number);
+      if(ty!==yr||tm!==mo)return w===5;
+      return Math.min(Math.ceil(td/7),5)===w;
+    })
+  }));
+
   function updateTask(projId,taskId,updates){
     setProjects(prev=>prev.map(x=>x.id===projId?{...x,tasks:(x.tasks||[]).map(t=>t.id===taskId?{...t,...updates}:t)}:x));
   }
 
-  const totalHours=Object.values(va.hoursLogged||{}).reduce((s,h)=>s+(+h||0),0);
-
   return(
     <div>
-      {/* VA HEADER */}
+      <ImportantDetailsBlock personId={auth.vaId} personName={va.name} importantDetails={importantDetails||{}} setImportantDetails={setImportantDetails||(()=>{})}/>
+
       <div style={cardS()}>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',flexWrap:'wrap',gap:'10px'}}>
           <div>
@@ -497,45 +632,53 @@ export function VAView({projects,setProjects,auth,vaUsers}){
         </div>
       </div>
 
-      {/* TASKS */}
       <div style={cardS()}>
-        <div style={lblS()}>My Tasks</div>
+        <div style={lblS()}>My Tasks — {ml}</div>
+        <div style={{fontSize:'10px',color:C.muted,marginBottom:'14px'}}>Tasks grouped by week</div>
         {myTasks.length===0
-          ?<div style={{textAlign:'center',padding:'32px',color:C.muted,fontSize:'13px'}}>No tasks assigned to you yet. Check back soon!</div>
+          ?<div style={{textAlign:'center',padding:'32px',color:C.muted,fontSize:'13px'}}>No tasks assigned yet. Check back soon!</div>
           :<>
-            {open.length>0&&<>
-              <div style={{fontSize:'10px',fontWeight:700,textTransform:'uppercase',letterSpacing:'0.08em',color:C.accent,marginBottom:'8px'}}>Open ({open.length})</div>
-              {open.map(task=>(
-                <div key={task.id} style={{padding:'12px 14px',borderRadius:'10px',marginBottom:'8px',background:C.bg,border:`1px solid ${C.border}`}}>
-                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:'8px',flexWrap:'wrap',gap:'6px'}}>
-                    <div>
-                      <div style={{fontSize:'13px',fontWeight:700,color:C.navy}}>{task.title}</div>
-                      <div style={{fontSize:'10px',color:C.muted,marginTop:'2px'}}>📁 {task.projectTitle}{task.dueDate&&` · Due ${task.dueDate}`}</div>
-                    </div>
-                    <select value={task.status} onChange={e=>updateTask(task.projectId,task.id,{status:e.target.value})} style={{...sel(),padding:'5px 10px',fontSize:'11px',width:'165px'}}>
-                      {STATUS_OPTS.map(o=><option key={o}>{o}</option>)}
-                    </select>
-                  </div>
-                  <div style={{marginBottom:'8px'}}>
-                    <input value={task.notes||''} onChange={e=>updateTask(task.projectId,task.id,{notes:e.target.value})} placeholder="Add a note or update…" style={{...inp(),background:'rgba(255,255,255,0.7)',fontSize:'11px',padding:'5px 10px'}}/> 
-                  </div>
-                  <div style={{display:'flex',gap:'10px',alignItems:'center'}}>
-                    <label style={{...lblS(),marginBottom:0,whiteSpace:'nowrap'}}>Log Hours:</label>
-                    <input type="number" placeholder="0" value={hoursInput[task.id]||''} onChange={e=>setHoursInput(p=>({...p,[task.id]:e.target.value}))} style={{...inp(),width:'80px',padding:'5px 8px'}}/>
-                    <button onClick={()=>{
-                      const hrs=+hoursInput[task.id]||0;
-                      if(!hrs)return;
-                      updateTask(task.projectId,task.id,{hoursLogged:(+task.hoursLogged||0)+hrs,lastUpdated:new Date().toISOString().split('T')[0]});
-                      setHoursInput(p=>({...p,[task.id]:''}));
-                    }} style={Btn('accent',{padding:'5px 14px',fontSize:'11px'})}>+ Add</button>
-                    {task.hoursLogged>0&&<span style={{fontSize:'10px',color:C.muted}}>Total: <strong>{task.hoursLogged} hrs</strong></span>}
-                  </div>
-                  {task.notes&&<div style={{fontSize:'10px',color:C.muted,marginTop:'6px',padding:'6px 10px',background:C.card,borderRadius:'6px'}}>{task.notes}</div>}
+            {tasksByWeek.map(({w,d1,d2,tasks:wt})=>wt.length===0?null:(
+              <div key={w} style={{marginBottom:'18px'}}>
+                <div style={{display:'flex',alignItems:'center',gap:'8px',marginBottom:'8px'}}>
+                  <span style={{background:C.navy,color:'#fff',borderRadius:'999px',padding:'2px 12px',fontSize:'9px',fontWeight:700}}>Week {w}</span>
+                  <span style={{fontSize:'10px',color:C.muted}}>{mo}/{d1} – {mo}/{d2} · {wt.length} task{wt.length!==1?'s':''}</span>
                 </div>
-              ))}
-            </>}
+                {wt.map(task=>(
+                  <div key={task.id} style={{padding:'12px 14px',borderRadius:'10px',marginBottom:'8px',
+                    background:task.status==='Assistance Needed'?C.dangerBg:task.status==='Approval Needed'?'#f0eaf8':C.bg,
+                    border:`1px solid ${task.status==='Assistance Needed'?C.danger+'33':task.status==='Approval Needed'?'#7a4fa355':C.border}`}}>
+                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:'8px',flexWrap:'wrap',gap:'6px'}}>
+                      <div>
+                        <div style={{fontSize:'13px',fontWeight:700,color:C.navy}}>{task.title}</div>
+                        <div style={{fontSize:'10px',color:C.muted,marginTop:'2px'}}>📁 {task.projectTitle}{task.dueDate&&` · Due ${task.dueDate}`}</div>
+                      </div>
+                      <select value={task.status} onChange={e=>updateTask(task.projectId,task.id,{status:e.target.value})}
+                        style={{...sel(),padding:'5px 10px',fontSize:'11px',width:'165px'}}>
+                        {STATUS_OPTS.map(o=><option key={o}>{o}</option>)}
+                      </select>
+                    </div>
+                    <div style={{marginBottom:'8px'}}>
+                      <input value={task.notes||''} onChange={e=>updateTask(task.projectId,task.id,{notes:e.target.value})}
+                        placeholder="Add a note or update…" style={{...inp(),background:'rgba(255,255,255,0.7)',fontSize:'11px',padding:'5px 10px'}}/>
+                    </div>
+                    <div style={{display:'flex',gap:'10px',alignItems:'center'}}>
+                      <label style={{...lblS(),marginBottom:0,whiteSpace:'nowrap'}}>Log Hours:</label>
+                      <input type="number" placeholder="0" value={hoursInput[task.id]||''} onChange={e=>setHoursInput(p=>({...p,[task.id]:e.target.value}))} style={{...inp(),width:'80px',padding:'5px 8px'}}/>
+                      <button onClick={()=>{
+                        const hrs=+hoursInput[task.id]||0;
+                        if(!hrs)return;
+                        updateTask(task.projectId,task.id,{hoursLogged:(+task.hoursLogged||0)+hrs,lastUpdated:new Date().toISOString().split('T')[0]});
+                        setHoursInput(p=>({...p,[task.id]:''}));
+                      }} style={Btn('accent',{padding:'5px 14px',fontSize:'11px'})}>+ Add</button>
+                      {task.hoursLogged>0&&<span style={{fontSize:'10px',color:C.muted}}>Total: <strong>{task.hoursLogged} hrs</strong></span>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ))}
             {done.length>0&&<>
-              <div style={{fontSize:'10px',fontWeight:700,textTransform:'uppercase',letterSpacing:'0.08em',color:C.muted,margin:'14px 0 8px'}}>Completed ({done.length})</div>
+              <div style={{fontSize:'10px',fontWeight:700,textTransform:'uppercase',letterSpacing:'0.08em',color:C.muted,margin:'14px 0 8px'}}>Completed ✓</div>
               {done.map(task=>(
                 <div key={task.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 14px',borderRadius:'8px',marginBottom:'4px',background:C.successBg,border:`1px solid ${C.success}33`}}>
                   <div>
