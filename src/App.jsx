@@ -1,7 +1,10 @@
 import { useState, useEffect, useMemo } from "react";
 import * as XLSX from 'xlsx';
 import { dbGet, dbSet, uploadReceipt, deleteReceipt } from './supabase.js';
-import { ProjectsView, TasksView, VAView } from './ProjectComponents.jsx';
+import { ProjectsView, TasksView, VAView, ImportantDetailsBlock } from './ProjectComponents.jsx';
+import { ClientAutocomplete, ClientDatabaseView } from './ClientComponents.jsx';
+import { CalendarView } from './CalendarView.jsx';
+import { initEmail, sendPayrollSummary } from './emailService.js';
 
 const C={bg:'#f0f4f7',card:'#fff',navy:'#253649',accent:'#7a9fa3',accentL:'#9aafb2',accentBg:'#eaf2f3',text:'#1a2a35',muted:'#6b8090',border:'#dce4ea',success:'#2e9e68',successBg:'#e6f5ee',warn:'#b87d00',warnBg:'#fef5dc',danger:'#c03030',dangerBg:'#fdeaea',shadow:'0 1px 4px rgba(37,54,73,0.1)'};
 const sans="'Montserrat',sans-serif",serif="'Cormorant Garamond',Georgia,serif";
@@ -929,6 +932,10 @@ export default function App(){
   const[retailData,setRetailData]=useState({});
   const[expenses,setExpenses]=useState([]);
   const[importantDetails,setImportantDetails]=useState({});
+  const[clients,setClients]=useState([]);
+  const[emailConfig,setEmailConfig]=useState({serviceId:'',templateId:'',publicKey:'',adminEmail:''});
+  const[showQuickLog,setShowQuickLog]=useState(false);
+  const[quickEntry,setQuickEntry]=useState({client:'',serviceId:'c1',retailPrice:'',discount:'0',tip:'0'});
   const[projects,setProjects]=useState([]);
   const[vaUsers,setVaUsers]=useState([]);
   const[payroll,setPayroll]=useState({});
@@ -957,6 +964,8 @@ export default function App(){
         const c=await dbGet('lh4:cat');if(c)setCatalog(JSON.parse(c));
         const ex=await dbGet('lh4:expenses');if(ex)setExpenses(JSON.parse(ex));
         const id2=await dbGet('lh4:details');if(id2)setImportantDetails(JSON.parse(id2));
+        const cl=await dbGet('lh4:clients');if(cl)setClients(JSON.parse(cl));
+        const ec=await dbGet('lh4:email');if(ec){const parsed=JSON.parse(ec);setEmailConfig(parsed);if(parsed.publicKey)initEmail(parsed.publicKey);}
         const pj=await dbGet('lh4:projects');if(pj)setProjects(JSON.parse(pj));
         const va=await dbGet('lh4:vausers');if(va)setVaUsers(JSON.parse(va));
         const pr=await dbGet('lh4:payroll');if(pr)setPayroll(JSON.parse(pr));
@@ -981,6 +990,8 @@ export default function App(){
   useEffect(()=>{if(ready)dbSet('lh4:creds',JSON.stringify(creds));},[creds,ready]);
   useEffect(()=>{if(ready)dbSet('lh4:expenses',JSON.stringify(expenses));},[expenses,ready]);
   useEffect(()=>{if(ready)dbSet('lh4:details',JSON.stringify(importantDetails));},[importantDetails,ready]);
+  useEffect(()=>{if(ready)dbSet('lh4:clients',JSON.stringify(clients));},[clients,ready]);
+  useEffect(()=>{if(ready)dbSet('lh4:email',JSON.stringify(emailConfig));},[emailConfig,ready]);
   useEffect(()=>{if(ready)dbSet('lh4:projects',JSON.stringify(projects));},[projects,ready]);
   useEffect(()=>{if(ready)dbSet('lh4:vausers',JSON.stringify(vaUsers));},[vaUsers,ready]);
   useEffect(()=>{if(ready)dbSet('lh4:payroll',JSON.stringify(payroll));},[payroll,ready]);
@@ -1102,8 +1113,8 @@ export default function App(){
   }
   function saveSvc(){if(!newSvc.name)return;setCatalog(p=>[...p,{...newSvc,id:uid()}]);setNewSvc(blankSv());setSvcOpen(false);}
 
-  const navItems=isAdmin?['combined','dashboard','log','commission','catalog','providers','expenses','breakeven','analytics','projects']:auth?.role==='va'?['projects']:['dashboard','log','tasks'];
-  const navLabels={'combined':'👥 All Providers','dashboard':'Dashboard','log':'Log','commission':'Commission','catalog':'Catalog','providers':'Providers','expenses':'💰 Expenses','breakeven':'📈 Breakeven','analytics':'📊 Analytics','projects':'📋 Projects','tasks':'📋 My Tasks'};
+  const navItems=isAdmin?['combined','dashboard','log','commission','catalog','providers','expenses','breakeven','analytics','projects','calendar','clients']:auth?.role==='va'?['projects']:['dashboard','log','tasks'];
+  const navLabels={'combined':'👥 All Providers','dashboard':'Dashboard','log':'Log','commission':'Commission','catalog':'Catalog','providers':'Providers','expenses':'💰 Expenses','breakeven':'📈 Breakeven','analytics':'📊 Analytics','projects':'📋 Projects','tasks':'📋 My Tasks','calendar':'📅 Calendar','clients':'👤 Clients'};
 
   return(
     <div style={{background:C.bg,minHeight:'100vh',fontFamily:sans,color:C.text}}>
@@ -1127,6 +1138,51 @@ export default function App(){
         </div>
       </div>
 
+      {/* QUICK LOG MODAL */}
+      {showQuickLog&&(
+        <div style={{position:'fixed',top:0,left:0,right:0,bottom:0,background:'rgba(0,0,0,0.4)',zIndex:200,display:'flex',alignItems:'center',justifyContent:'center',padding:'20px'}}>
+          <div style={{background:C.card,borderRadius:'16px',padding:'24px',width:'100%',maxWidth:'460px',boxShadow:'0 20px 60px rgba(0,0,0,0.3)'}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'16px'}}>
+              <div style={{fontFamily:serif,fontSize:'20px',fontWeight:300,color:C.navy}}>⚡ Quick Log</div>
+              <button onClick={()=>setShowQuickLog(false)} style={{background:'none',border:'none',fontSize:'20px',cursor:'pointer',color:C.muted}}>✕</button>
+            </div>
+            <div style={{display:'grid',gap:'10px',marginBottom:'14px'}}>
+              <div><label style={lblS()}>Client *</label><ClientAutocomplete value={quickEntry.client} onChange={v=>setQuickEntry(p=>({...p,client:v}))} clients={clients}/></div>
+              <div><label style={lblS()}>Service *</label>
+                <select value={quickEntry.serviceId} onChange={e=>{const sv=catalog.find(c=>c.id===e.target.value);setQuickEntry(p=>({...p,serviceId:e.target.value,retailPrice:sv?.price||''}));}} style={sel()}>
+                  {catalog.filter(c=>c.active).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </div>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'8px'}}>
+                <div><label style={lblS()}>Price ($)</label><input type="number" value={quickEntry.retailPrice} onChange={e=>setQuickEntry(p=>({...p,retailPrice:e.target.value}))} style={inp()}/></div>
+                <div><label style={lblS()}>Discount ($)</label><input type="number" value={quickEntry.discount} onChange={e=>setQuickEntry(p=>({...p,discount:e.target.value}))} placeholder="0" style={inp()}/></div>
+                <div><label style={lblS()}>Tip ($)</label><input type="number" value={quickEntry.tip} onChange={e=>setQuickEntry(p=>({...p,tip:e.target.value}))} placeholder="0" style={inp()}/></div>
+              </div>
+            </div>
+            <button style={{...Btn('primary'),width:'100%',padding:'12px',fontSize:'13px',borderRadius:'10px'}} onClick={()=>{
+              if(!quickEntry.client||!quickEntry.serviceId)return;
+              const sv=catalog.find(c=>c.id===quickEntry.serviceId);
+              const price=parseFloat(quickEntry.retailPrice)||(sv?.price||0);
+              const autoCOG2=cogCalc(sv,0,0);
+              const e2={id:uid(),date:new Date().toISOString().split('T')[0],client:quickEntry.client,serviceId:quickEntry.serviceId,retailPrice:price,discount:parseFloat(quickEntry.discount)||0,tip:parseFloat(quickEntry.tip)||0,unitsUsed:'',vialsUsed:'',cogsManual:autoCOG2,cogsOverride:false,notes:''};
+              const qMk=`${prov?.id}:${month}`;
+              setLogData(p=>({...p,[qMk]:[...(p[qMk]||[]),e2]}));
+              // Add to client DB if new
+              if(!clients.find(c=>c.name.toLowerCase()===quickEntry.client.toLowerCase())){
+                setClients(p=>[...p,{id:uid(),name:quickEntry.client,phone:'',email:'',notes:'',createdAt:new Date().toISOString().split('T')[0]}]);
+              }
+              setQuickEntry({client:'',serviceId:'c1',retailPrice:'',discount:'0',tip:'0'});
+              setShowQuickLog(false);
+            }}>✓ Log Service</button>
+          </div>
+        </div>
+      )}
+
+      {/* QUICK LOG FLOATING BUTTON */}
+      {!isAdmin&&auth?.role!=='va'&&(
+        <button onClick={()=>setShowQuickLog(true)} style={{position:'fixed',bottom:'24px',right:'24px',background:C.navy,color:'#fff',border:'none',borderRadius:'999px',width:'56px',height:'56px',fontSize:'24px',cursor:'pointer',boxShadow:'0 4px 20px rgba(37,54,73,0.35)',zIndex:150,display:'flex',alignItems:'center',justifyContent:'center'}}>+</button>
+      )}
+
       <div style={{maxWidth:'1140px',margin:'0 auto',padding:'18px 16px'}}>
         {/* PROVIDER TABS (admin) */}
         {isAdmin&&auth?.role!=='va'&&(
@@ -1148,7 +1204,9 @@ export default function App(){
         </div>
 
         {/* ── COMBINED ── */}
-        {view==='combined'&&isAdmin&&<CombinedView providers={providers} logData={logData} hoursData={hoursData} retailData={retailData} catalog={catalog} month={month}/>}
+        {view==='combined'&&isAdmin&&<>
+          <ImportantDetailsBlock personId={`admin:${auth?.adminId||'admin'}`} personName={`${auth?.adminId||'Admin'} — Personal Notes`} importantDetails={importantDetails} setImportantDetails={setImportantDetails}/>
+          <CombinedView providers={providers} logData={logData} hoursData={hoursData} retailData={retailData} catalog={catalog} month={month}/>}
 
         {/* ── DASHBOARD ── */}
         {view==='dashboard'&&auth?.role!=='va'&&(
@@ -1254,7 +1312,7 @@ export default function App(){
               <div style={{background:C.bg,borderRadius:'10px',padding:'16px',marginBottom:'16px',border:`1px solid ${C.border}`}}>
                 <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(135px,1fr))',gap:'10px',marginBottom:'12px'}}>
                   <div><label style={lblS()}>Date</label><input type="date" value={entry.date} onChange={e=>setEntry(p=>({...p,date:e.target.value}))} style={inp()}/></div>
-                  <div><label style={lblS()}>Client *</label><input value={entry.client} onChange={e=>setEntry(p=>({...p,client:e.target.value}))} placeholder="Client name" style={inp()}/></div>
+                  <div><label style={lblS()}>Client *</label><ClientAutocomplete value={entry.client} onChange={v=>setEntry(p=>({...p,client:v}))} clients={clients}/></div>
                   <div style={{gridColumn:'span 2'}}><label style={lblS()}>Service *</label>
                     <select value={entry.serviceId} onChange={e=>{const sv=catalog.find(c=>c.id===e.target.value);setEntry(p=>({...p,serviceId:e.target.value,retailPrice:sv?.price||'',unitsUsed:'',vialsUsed:'',cogsManual:'',cogsOverride:false}));}} style={sel()}>
                       {catalog.filter(c=>c.active).map(c=><option key={c.id} value={c.id}>{c.name} ({c.cat})</option>)}
@@ -1350,6 +1408,14 @@ export default function App(){
               <div style={cardS({marginBottom:0})}><div style={lblS()}>Membership Bonuses</div><div style={{fontSize:'22px',fontWeight:300,fontFamily:serif,color:C.navy}}>{f0(comm.memB)}</div><div style={{fontSize:'10px',color:C.muted}}>{comm.memCt} × ${prov.membershipBonus}</div></div>
               <div style={cardS({marginBottom:0})}><div style={lblS()}>Retail Commission</div><div style={{fontSize:'22px',fontWeight:300,fontFamily:serif,color:C.navy}}>{f0(comm.retComm)}</div><div style={{fontSize:'10px',color:C.muted}}>{f0(comm.retRev)} × {prov.retailCommRate||0}%</div></div>
               <div style={{...cardS({marginBottom:0}),background:C.navy}}><div style={{...lblS(),color:C.accentL}}>Total Pay</div><div style={{fontSize:'26px',fontWeight:300,fontFamily:serif,color:'#fff'}}>{f0(comm.totalPay)}</div></div>
+            </div>
+            <div style={{marginBottom:'14px'}}>
+              <button onClick={()=>{
+                const breakdown=`Injectable Revenue: ${f0(comm.injRev)} x ${comm.iT.rate}% = ${f0(comm.injC)}\nFacial Revenue: ${f0(comm.facRev)} x ${comm.fT.rate}% = ${f0(comm.facC)}\nRetail Commission: ${f0(comm.retComm)}\nMembership Bonuses: ${f0(comm.memB)}${prov.compType==='hourly_goal'?`\nBase Pay: $${prov.hourlyRate}/hr x ${comm.hrs} hrs = ${f0(comm.basePay)}`:''}\n\nTOTAL PAY: ${f0(comm.totalPay)}`;
+                const win=window.open('','_blank');
+                win.document.write(`<html><head><title>Payroll — ${prov.name} — ${ml}</title><style>body{font-family:sans-serif;padding:40px;max-width:600px;margin:0 auto}h1{font-size:24px;font-weight:300}table{width:100%;border-collapse:collapse;margin:16px 0}td{padding:8px;border-bottom:1px solid #eee}td:last-child{text-align:right;font-weight:600}.total{font-size:18px;font-weight:700;color:#253649}</style></head><body><h1>Payroll Summary</h1><p><strong>${prov.name}</strong> · ${prov.role} · ${ml}</p><table>${breakdown.split('\n').map(l=>`<tr><td colspan="2">${l}</td></tr>`).join('')}</table><p class="total">TOTAL PAY: ${f0(comm.totalPay)}</p><p style="color:#999;font-size:12px;margin-top:40px">Lumé Haus by CornerstoneMD · Dr. Louis Gilbert, MD</p></body></html>`);
+                win.document.close();win.print();
+              }} style={Btn('secondary',{padding:'8px 18px',fontSize:'11px'})}>🖨️ Print / Save Payroll Summary</button>
             </div>
             <div style={cardS()}>
               <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'20px'}}>
@@ -1519,9 +1585,13 @@ export default function App(){
         )}
 
         {view==='expenses'&&isAdmin&&<ExpensesView expenses={expenses} setExpenses={setExpenses} month={month} payroll={payroll} setPayroll={setPayroll} providers={providers} logData={logData} hoursData={hoursData} retailData={retailData} catalog={catalog}/>}
-        {view==='projects'&&isAdmin&&<ProjectsView projects={projects} setProjects={setProjects} providers={providers} vaUsers={vaUsers} setVaUsers={setVaUsers} creds={creds} setCreds={setCreds}/>}
-        {view==='tasks'&&auth?.role!=='admin'&&auth?.role!=='va'&&<TasksView projects={projects} setProjects={setProjects} provId={auth?.providerId} provName={prov?.name} month={month} importantDetails={importantDetails} setImportantDetails={setImportantDetails}/>}
-        {(view==='projects'||auth?.role==='va')&&auth?.role==='va'&&<VAView projects={projects} setProjects={setProjects} auth={auth} vaUsers={vaUsers} month={month} importantDetails={importantDetails} setImportantDetails={setImportantDetails}/>}
+        {view==='projects'&&isAdmin&&<ProjectsView projects={projects} setProjects={setProjects} providers={providers} vaUsers={vaUsers} setVaUsers={setVaUsers} creds={creds} setCreds={setCreds} emailConfig={emailConfig}/>}
+        {view==='tasks'&&auth?.role!=='admin'&&auth?.role!=='va'&&<TasksView projects={projects} setProjects={setProjects} provId={auth?.providerId} provName={prov?.name} month={month} importantDetails={importantDetails} setImportantDetails={setImportantDetails} emailConfig={emailConfig} providerName={prov?.name}/>}
+        {(view==='projects'||auth?.role==='va')&&auth?.role==='va'&&<VAView projects={projects} setProjects={setProjects} auth={auth} vaUsers={vaUsers} setVaUsers={setVaUsers} month={month} importantDetails={importantDetails} setImportantDetails={setImportantDetails} emailConfig={emailConfig}/>}
+        </>
+}
+        {view==='calendar'&&isAdmin&&<CalendarView projects={projects} month={month} setMonth={setMonth} providers={providers}/>}
+        {view==='clients'&&isAdmin&&<ClientDatabaseView clients={clients} setClients={setClients}/>}
         {view==='analytics'&&isAdmin&&<AnalyticsView expenses={expenses} payroll={payroll} providers={providers} logData={logData} hoursData={hoursData} retailData={retailData} catalog={catalog} month={month}/>}
         {view==='breakeven'&&isAdmin&&<BreakevenView expenses={expenses} payroll={payroll} providers={providers} logData={logData} hoursData={hoursData} retailData={retailData} catalog={catalog}/>}
 
