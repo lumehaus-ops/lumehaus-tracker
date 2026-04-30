@@ -1005,7 +1005,7 @@ export default function App(){
   const comm=useMemo(()=>prov?calcComm(entries,prov,catalog,hrs,retail):{totRev:0,svcRev:0,injRev:0,facRev:0,retRev:0,totCogs:0,retCogs:0,gp:0,totTips:0,memCt:0,memB:0,retComm:0,basePay:0,iT:{rate:0},fT:{rate:0},injC:0,facC:0,totC:0,totalPay:0,above:0,hrs:0},[entries,prov,catalog,hrs,retail]);
 
   if(!ready)return<div style={{minHeight:'100vh',background:C.navy,display:'flex',alignItems:'center',justifyContent:'center',color:C.accentL,fontFamily:sans}}>Loading…</div>;
-  if(!auth)return<LoginScreen providers={providers} creds={creds} onLogin={a=>{setAuth(a);if(a.role==='staff'){setSid(a.providerId);setView('dashboard');}else setView('combined');}}/>;
+  if(!auth)return<LoginScreen providers={providers} creds={creds} onLogin={a=>{setAuth(a);if(a.role==='staff'){setSid(a.providerId);setView('dashboard');}else if(a.role==='va'){setView('projects');}else{setView('combined');}}}/> ;
   const selSvc=catalog.find(c=>c.id===entry.serviceId);
   const autoCOG=cogCalc(selSvc,entry.unitsUsed,entry.vialsUsed);
   const ml=new Date(month+'-02').toLocaleString('default',{month:'long',year:'numeric'});
@@ -1205,8 +1205,9 @@ export default function App(){
 
         {/* ── COMBINED ── */}
         {view==='combined'&&isAdmin&&<>
-          <ImportantDetailsBlock personId={`admin:${auth?.adminId||'admin'}`} personName={`${auth?.adminId||'Admin'} — Personal Notes`} importantDetails={importantDetails} setImportantDetails={setImportantDetails}/>
-          <CombinedView providers={providers} logData={logData} hoursData={hoursData} retailData={retailData} catalog={catalog} month={month}/>}
+          <ImportantDetailsBlock personId={`admin:${auth?.adminId||'admin'}`} personName={`Admin Notes`} importantDetails={importantDetails} setImportantDetails={setImportantDetails}/>
+          <CombinedView providers={providers} logData={logData} hoursData={hoursData} retailData={retailData} catalog={catalog} month={month}/>
+        </>}
 
         {/* ── DASHBOARD ── */}
         {view==='dashboard'&&auth?.role!=='va'&&(
@@ -1587,9 +1588,7 @@ export default function App(){
         {view==='expenses'&&isAdmin&&<ExpensesView expenses={expenses} setExpenses={setExpenses} month={month} payroll={payroll} setPayroll={setPayroll} providers={providers} logData={logData} hoursData={hoursData} retailData={retailData} catalog={catalog}/>}
         {view==='projects'&&isAdmin&&<ProjectsView projects={projects} setProjects={setProjects} providers={providers} vaUsers={vaUsers} setVaUsers={setVaUsers} creds={creds} setCreds={setCreds} emailConfig={emailConfig}/>}
         {view==='tasks'&&auth?.role!=='admin'&&auth?.role!=='va'&&<TasksView projects={projects} setProjects={setProjects} provId={auth?.providerId} provName={prov?.name} month={month} importantDetails={importantDetails} setImportantDetails={setImportantDetails} emailConfig={emailConfig} providerName={prov?.name}/>}
-        {(view==='projects'||auth?.role==='va')&&auth?.role==='va'&&<VAView projects={projects} setProjects={setProjects} auth={auth} vaUsers={vaUsers} setVaUsers={setVaUsers} month={month} importantDetails={importantDetails} setImportantDetails={setImportantDetails} emailConfig={emailConfig}/>}
-        </>
-}
+        {auth?.role==='va'&&<VAView projects={projects} setProjects={setProjects} auth={auth} vaUsers={vaUsers} setVaUsers={setVaUsers} month={month} importantDetails={importantDetails} setImportantDetails={setImportantDetails} emailConfig={emailConfig}/>}
         {view==='calendar'&&isAdmin&&<CalendarView projects={projects} month={month} setMonth={setMonth} providers={providers}/>}
         {view==='clients'&&isAdmin&&<ClientDatabaseView clients={clients} setClients={setClients}/>}
         {view==='analytics'&&isAdmin&&<AnalyticsView expenses={expenses} payroll={payroll} providers={providers} logData={logData} hoursData={hoursData} retailData={retailData} catalog={catalog} month={month}/>}
