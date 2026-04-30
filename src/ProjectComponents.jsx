@@ -138,7 +138,7 @@ const StatusBadge=({s})=>{const cs=statusColor[s]||{bg:'#eee',color:'#888'};retu
 const PriBadge=({p})=>{const cs=priorityColor[p]||{bg:'#eee',color:'#888'};return<span style={{display:'inline-block',padding:'2px 8px',borderRadius:'999px',background:cs.bg,color:cs.color,fontSize:'9px',fontWeight:700}}>{p}</span>;};
 
 /* ── PROJECTS VIEW (admin) ── */
-export function ProjectsView({projects,setProjects,providers,vaUsers,setVaUsers,creds,setCreds,emailConfig}){
+export function ProjectsView({projects,setProjects,providers,vaUsers,setVaUsers,creds,setCreds,emailConfig,month,setMonth}){
   const[tab,setTab]=useState('projects');
   const[showForm,setShowForm]=useState(false);
   const[editId,setEditId]=useState(null);
@@ -228,7 +228,7 @@ export function ProjectsView({projects,setProjects,providers,vaUsers,setVaUsers,
     <div>
       {/* TAB NAV */}
       <div style={{display:'flex',gap:'4px',background:C.card,borderRadius:'10px',padding:'4px',marginBottom:'16px',width:'fit-content',border:`1px solid ${C.border}`,boxShadow:C.shadow}}>
-        {[['projects','📋 Projects'],['team','👤 VA Management']].map(([t,l])=>(
+        {[['projects','📋 Projects'],['calendar','📅 Calendar'],['team','👤 VA Management']].map(([t,l])=>(
           <button key={t} onClick={()=>setTab(t)} style={{padding:'7px 18px',borderRadius:'7px',border:'none',cursor:'pointer',background:tab===t?C.navy:'transparent',color:tab===t?'#fff':C.muted,fontFamily:sans,fontSize:'12px',fontWeight:600}}>{l}</button>
         ))}
       </div>
@@ -432,6 +432,11 @@ export function ProjectsView({projects,setProjects,providers,vaUsers,setVaUsers,
         </>
       )}
 
+      {/* ── CALENDAR TAB ── */}
+      {tab==='calendar'&&(
+        <ProjectCalendar projects={projects} month={month} setMonth={setMonth} providers={providers} vaUsers={vaUsers}/>
+      )}
+
       {/* ── VA MANAGEMENT TAB ── */}
       {tab==='team'&&(
         <>
@@ -611,6 +616,153 @@ export function TasksView({projects,setProjects,provId,provName,month,importantD
   );
 }
 
+
+
+/* ── PROJECT CALENDAR (inside Projects tab) ── */
+function ProjectCalendar({projects,month,setMonth,providers,vaUsers}){
+  const[viewMode,setViewMode]=useState('month');
+  const[selectedDay,setSelectedDay]=useState(null);
+  const[yr,mo]=month.split('-').map(Number);
+
+  const allAssignees=[
+    ...providers.map(p=>({id:p.id,name:p.name,color:p.color})),
+    ...(vaUsers||[]).map(v=>({id:v.id,name:v.name,color:'#9a6fa3'})),
+  ];
+
+  const firstDay=new Date(yr,mo-1,1).getDay();
+  const daysInMonth=new Date(yr,mo,0).getDate();
+  const ml=new Date(month+'-02').toLocaleString('default',{month:'long',year:'numeric'});
+  const today=new Date().toISOString().split('T')[0];
+  const todayDay=today.startsWith(month)?parseInt(today.split('-')[2]):null;
+
+  const STATUS_COLORS_CAL={'Not Started':'#888','In Progress':'#7a9fa3','Assistance Needed':'#c03030','Approval Needed':'#7a4fa3','Complete':'#2e9e68'};
+
+  // Build events map
+  const events={};
+  projects.forEach(proj=>{
+    if(proj.dueDate){
+      const[py,pm,pd]=proj.dueDate.split('-').map(Number);
+      if(py===yr&&pm===mo){
+        if(!events[pd])events[pd]=[];
+        events[pd].push({type:'project',title:proj.title,status:proj.status,color:'#253649'});
+      }
+    }
+    (proj.tasks||[]).forEach(task=>{
+      if(task.dueDate){
+        const[ty,tm,td]=task.dueDate.split('-').map(Number);
+        if(ty===yr&&tm===mo){
+          if(!events[td])events[td]=[];
+          const assignee=allAssignees.find(a=>a.id===task.assignedTo);
+          events[td].push({type:'task',title:task.title,project:proj.title,status:task.status,assignee:assignee?.name||'',color:STATUS_COLORS_CAL[task.status]||'#888'});
+        }
+      }
+    });
+  });
+
+  // Weekly view: get week containing today
+  const now=new Date();
+  const weekStart=new Date(now);weekStart.setDate(now.getDate()-now.getDay()+1);
+  const weekDays=Array.from({length:7},(_,i)=>{
+    const d=new Date(weekStart);d.setDate(weekStart.getDate()+i);
+    const dateStr=d.toISOString().split('T')[0];
+    const[wy,wm,wd]=dateStr.split('-').map(Number);
+    return{date:dateStr,label:d.toLocaleDateString('en-US',{weekday:'short',month:'numeric',day:'numeric'}),events:wy===yr&&wm===mo?(events[wd]||[]):[]};
+  });
+
+  function prev(){const d=new Date(yr,mo-2,1);setMonth(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`);}
+  function next(){const d=new Date(yr,mo,1);setMonth(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`);}
+
+  return(
+    <div>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'14px',flexWrap:'wrap',gap:'10px'}}>
+        <div style={{display:'flex',gap:'8px',alignItems:'center'}}>
+          <button onClick={prev} style={Btn('secondary',{padding:'5px 12px'})}>‹</button>
+          <div style={{fontFamily:serif,fontSize:'18px',fontWeight:300,color:C.navy}}>{ml}</div>
+          <button onClick={next} style={Btn('secondary',{padding:'5px 12px'})}>›</button>
+        </div>
+        <div style={{display:'flex',gap:'4px',background:C.bg,borderRadius:'8px',padding:'3px'}}>
+          {[['month','Month'],['week','Week']].map(([m,l])=>(
+            <button key={m} onClick={()=>setViewMode(m)} style={{padding:'5px 14px',borderRadius:'6px',border:'none',cursor:'pointer',background:viewMode===m?C.navy:'transparent',color:viewMode===m?'#fff':C.muted,fontFamily:sans,fontSize:'11px',fontWeight:600}}>{l}</button>
+          ))}
+        </div>
+      </div>
+
+      {/* MONTH VIEW */}
+      {viewMode==='month'&&(
+        <div style={cardS()}>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:'2px',marginBottom:'4px'}}>
+            {['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d=>(
+              <div key={d} style={{textAlign:'center',fontSize:'9px',fontWeight:700,color:C.muted,textTransform:'uppercase',padding:'4px 0'}}>{d}</div>
+            ))}
+          </div>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:'3px'}}>
+            {Array.from({length:firstDay},(_,i)=><div key={'e'+i} style={{minHeight:'70px'}}/>)}
+            {Array.from({length:daysInMonth},(_,i)=>{
+              const day=i+1;
+              const dayEvents=events[day]||[];
+              const isToday=day===todayDay;
+              const isSel=day===selectedDay;
+              return(
+                <div key={day} onClick={()=>setSelectedDay(isSel?null:day)}
+                  style={{minHeight:'70px',background:isSel?C.accentBg:isToday?C.navy+'0d':C.bg,borderRadius:'8px',padding:'5px',cursor:dayEvents.length>0?'pointer':'default',border:`1px solid ${isSel?C.accent:isToday?C.accent+'55':C.border}`}}>
+                  <div style={{fontSize:'11px',fontWeight:isToday?700:500,color:isToday?C.accent:C.text,marginBottom:'3px'}}>{day}</div>
+                  {dayEvents.slice(0,2).map((ev,j)=>(
+                    <div key={j} style={{fontSize:'8px',fontWeight:600,color:ev.color,background:ev.color+'18',borderRadius:'3px',padding:'1px 4px',marginBottom:'2px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
+                      {ev.type==='project'?'📁':'✓'} {ev.title}
+                    </div>
+                  ))}
+                  {dayEvents.length>2&&<div style={{fontSize:'8px',color:C.muted}}>+{dayEvents.length-2}</div>}
+                </div>
+              );
+            })}
+          </div>
+          {selectedDay&&(events[selectedDay]||[]).length>0&&(
+            <div style={{marginTop:'14px',borderTop:`1px solid ${C.border}`,paddingTop:'12px'}}>
+              <div style={lblS()}>{ml} {selectedDay}</div>
+              {(events[selectedDay]||[]).map((ev,i)=>(
+                <div key={i} style={{display:'flex',gap:'10px',padding:'8px 12px',borderRadius:'8px',marginBottom:'5px',background:C.bg,border:`1px solid ${C.border}`,borderLeft:`4px solid ${ev.color}`}}>
+                  <div style={{flex:1}}>
+                    <div style={{fontWeight:700,fontSize:'12px',color:C.navy}}>{ev.title}</div>
+                    {ev.type==='task'&&<div style={{fontSize:'10px',color:C.muted}}>📁 {ev.project}{ev.assignee?' · 👤 '+ev.assignee:''}</div>}
+                    {ev.type==='project'&&<div style={{fontSize:'10px',color:C.muted}}>Project deadline</div>}
+                  </div>
+                  <span style={{fontSize:'9px',fontWeight:700,padding:'2px 8px',borderRadius:'999px',background:ev.color+'22',color:ev.color,alignSelf:'flex-start',whiteSpace:'nowrap'}}>{ev.status}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* WEEK VIEW */}
+      {viewMode==='week'&&(
+        <div style={cardS()}>
+          <div style={{fontSize:'10px',color:C.muted,marginBottom:'12px'}}>Week of {weekStart.toLocaleDateString('en-US',{month:'long',day:'numeric'})}</div>
+          {weekDays.map(({date,label,events:dayEvs})=>(
+            <div key={date} style={{marginBottom:'12px',borderBottom:`1px solid ${C.border}`,paddingBottom:'12px'}}>
+              <div style={{display:'flex',alignItems:'center',gap:'8px',marginBottom:'6px'}}>
+                <span style={{fontSize:'10px',fontWeight:700,color:date===today?C.accent:C.navy,background:date===today?C.accentBg:C.bg,padding:'2px 10px',borderRadius:'999px',border:`1px solid ${date===today?C.accent:C.border}`}}>{label}{date===today?' · Today':''}</span>
+                <span style={{fontSize:'9px',color:C.muted}}>{dayEvs.length} item{dayEvs.length!==1?'s':''}</span>
+              </div>
+              {dayEvs.length===0
+                ?<div style={{fontSize:'10px',color:C.muted,padding:'4px 8px'}}>Nothing scheduled</div>
+                :dayEvs.map((ev,i)=>(
+                  <div key={i} style={{display:'flex',gap:'8px',padding:'6px 10px',borderRadius:'7px',marginBottom:'4px',background:C.bg,border:`1px solid ${C.border}`,borderLeft:`3px solid ${ev.color}`}}>
+                    <div style={{flex:1}}>
+                      <div style={{fontSize:'11px',fontWeight:600,color:C.navy}}>{ev.title}</div>
+                      {ev.type==='task'&&<div style={{fontSize:'9px',color:C.muted}}>📁 {ev.project}{ev.assignee?' · 👤 '+ev.assignee:''}</div>}
+                    </div>
+                    <span style={{fontSize:'8px',padding:'2px 6px',borderRadius:'999px',background:ev.color+'22',color:ev.color,alignSelf:'center',fontWeight:700,whiteSpace:'nowrap'}}>{ev.status}</span>
+                  </div>
+                ))
+              }
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 /* ── VA DAILY TIMESHEET ── */
 function VATimesheet({va,vaId,vaUsers,setVaUsers,month,ml,emailConfig}){
