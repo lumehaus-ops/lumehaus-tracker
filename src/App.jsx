@@ -1,10 +1,39 @@
 import { useState, useEffect, useMemo } from "react";
 import * as XLSX from 'xlsx';
+
+// ── INLINE EMAIL HELPERS ────────────────────────────────
+const DEFAULT_EMAIL_SERVICE = 'service_742oajo';
+const DEFAULT_EMAIL_TEMPLATE = 'template_mk11yaq';  
+const DEFAULT_EMAIL_KEY = 'Zyf1nHcE0NKucw1go';
+
+function initEmail(key){ if(typeof emailjs!=="undefined") emailjs.init(key||DEFAULT_EMAIL_KEY); }
+
+async function sendEmail({serviceId,templateId,to,subject,body,from_name='Lumé Haus Tracker'}){
+  const sId=serviceId||DEFAULT_EMAIL_SERVICE;
+  const tId=templateId||DEFAULT_EMAIL_TEMPLATE;
+  if(!to){console.warn('No recipient email');return false;}
+  try{
+    if(typeof emailjs==="undefined"){console.warn('EmailJS not loaded');return false;}
+    await emailjs.send(sId,tId,{to_email:to,to_name:to,from_name,subject,message:body});
+    return true;
+  }catch(e){console.error('Email failed:',e);return false;}
+}
+
+async function sendTaskAlert({emailConfig,taskTitle,projectTitle,status,providerName}){
+  return sendEmail({serviceId:emailConfig?.serviceId,templateId:emailConfig?.templateId,to:emailConfig?.adminEmail,
+    subject:`⚠️ Task Update: ${status} — ${taskTitle}`,
+    body:`A task needs your attention.\n\nTask: ${taskTitle}\nProject: ${projectTitle}\nStatus: ${status}\nUpdated by: ${providerName}\n\nLog in: https://dashboard.lumehaus.health`});
+}
+
+async function sendHoursApproval({emailConfig,vaName,weekLabel,hours,details}){
+  return sendEmail({serviceId:emailConfig?.serviceId,templateId:emailConfig?.templateId,to:emailConfig?.adminEmail,
+    subject:`⏱️ Hours Approval — ${vaName} · ${weekLabel}`,
+    body:`${vaName} submitted hours for approval.\n\nWeek: ${weekLabel}\nTotal: ${hours} hrs\n\n${details}\n\nLog in: https://dashboard.lumehaus.health`});
+}
+
+
 import { dbGet, dbSet, uploadReceipt, deleteReceipt } from './supabase.js';
-import { ProjectsView, TasksView, VAView, ImportantDetailsBlock } from './ProjectComponents.jsx';
-import { ClientAutocomplete, ClientDatabaseView } from './ClientComponents.jsx';
-import { CalendarView } from './CalendarView.jsx';
-import { initEmail, sendPayrollSummary } from './emailService.js';
+// All components inlined below
 
 const C={bg:'#f0f4f7',card:'#fff',navy:'#253649',accent:'#7a9fa3',accentL:'#9aafb2',accentBg:'#eaf2f3',text:'#1a2a35',muted:'#6b8090',border:'#dce4ea',success:'#2e9e68',successBg:'#e6f5ee',warn:'#b87d00',warnBg:'#fef5dc',danger:'#c03030',dangerBg:'#fdeaea',shadow:'0 1px 4px rgba(37,54,73,0.1)'};
 const sans="'Montserrat',sans-serif",serif="'Cormorant Garamond',Georgia,serif";
@@ -920,6 +949,1387 @@ function BreakevenView({expenses,payroll,providers,logData,hoursData,retailData,
   );
 }
 
+
+
+
+/* ── CLIENT AUTOCOMPLETE INPUT ── */
+function ClientAutocomplete({ value, onChange, clients }) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState(value || '');
+  const ref = useRef(null);
+
+  const matches = query.length > 0
+    ? clients.filter(c => c.name.toLowerCase().includes(query.toLowerCase())).slice(0, 6)
+    : [];
+
+  useEffect(() => {
+    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <input
+        value={query}
+        onChange={e => { setQuery(e.target.value); onChange(e.target.value); setOpen(true); }}
+        onFocus={() => setOpen(true)}
+        placeholder="Client name"
+        style={inp()}
+      />
+      {open && matches.length > 0 && (
+        <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: C.card, border: `1px solid ${C.border}`, borderRadius: '8px', boxShadow: C.shadow, zIndex: 100, marginTop: '2px', overflow: 'hidden' }}>
+          {matches.map(c => (
+            <div key={c.id} onClick={() => { setQuery(c.name); onChange(c.name); setOpen(false); }}
+              style={{ padding: '8px 12px', cursor: 'pointer', fontSize: '12px', color: C.text, borderBottom: `1px solid ${C.border}` }}
+              onMouseEnter={e => e.target.style.background = C.accentBg}
+              onMouseLeave={e => e.target.style.background = 'transparent'}>
+              <div style={{ fontWeight: 600 }}>{c.name}</div>
+
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── CLIENT DATABASE VIEW ── */
+function ClientDatabaseView({ clients, setClients }) {
+  const [showForm, setShowForm] = useState(false);
+  const [editId, setEditId] = useState(null);
+  const [search, setSearch] = useState('');
+  const blankC = () => ({ id: uid(), name: '', phone: '', email: '', notes: '', createdAt: new Date().toISOString().split('T')[0] });
+  const [form, setForm] = useState(blankC());
+
+  const filtered = clients.filter(c => c.name.toLowerCase().includes(search.toLowerCase()) || (c.phone||'').includes(search) || (c.email||'').toLowerCase().includes(search.toLowerCase()));
+
+  function save() {
+    if (!form.name) return;
+    if (editId) setClients(p => p.map(x => x.id === editId ? { ...form } : x));
+    else setClients(p => [...p, { ...form, id: uid() }]);
+    setForm(blankC()); setShowForm(false); setEditId(null);
+  }
+
+  function startEdit(c) { setForm(c); setEditId(c.id); setShowForm(true); }
+
+  return (
+    <div>
+      <div style={cardS()}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '10px' }}>
+          <div>
+            <div style={lblS()}>Client Database</div>
+            <div style={{ fontSize: '10px', color: C.muted }}>{clients.length} clients · Names auto-complete in the service log</div>
+          </div>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search clients…" style={{ ...inp(), width: '180px' }} />
+            <button style={Btn('primary')} onClick={() => { setShowForm(!showForm); setEditId(null); setForm(blankC()); }}>{showForm ? '✕ Cancel' : '+ Add Client'}</button>
+          </div>
+        </div>
+
+        {showForm && (
+          <div style={{ background: C.bg, borderRadius: '10px', padding: '14px', marginBottom: '14px', border: `1px solid ${C.border}` }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: '10px', marginBottom: '10px' }}>
+              <div><label style={lblS()}>Full Name *</label><input value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} placeholder="Client name" style={inp()} /></div>
+              <div><label style={lblS()}>Phone</label><input value={form.phone || ''} onChange={e => setForm(p => ({ ...p, phone: e.target.value }))} placeholder="(000) 000-0000" style={inp()} /></div>
+              <div><label style={lblS()}>Email</label><input value={form.email || ''} onChange={e => setForm(p => ({ ...p, email: e.target.value }))} placeholder="client@email.com" style={inp()} /></div>
+              <div style={{ gridColumn: '1/-1' }}><label style={lblS()}>Notes</label><input value={form.notes || ''} onChange={e => setForm(p => ({ ...p, notes: e.target.value }))} placeholder="Allergies, preferences, VIP status…" style={inp()} /></div>
+            </div>
+            <button style={Btn('primary')} onClick={save}>✓ Save Client</button>
+          </div>
+        )}
+
+        {filtered.length === 0
+          ? <div style={{ textAlign: 'center', padding: '28px', color: C.muted, fontSize: '13px' }}>{search ? 'No clients match your search.' : 'No clients yet. Add the first one!'}</div>
+          : <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+              <thead><tr>{['Name', 'Phone', 'Email', 'Notes', 'Added', ''].map(h => (
+                <th key={h} style={{ textAlign: 'left', padding: '6px 8px', fontSize: '9px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: C.muted, borderBottom: `1px solid ${C.border}` }}>{h}</th>
+              ))}</tr></thead>
+              <tbody>
+                {filtered.map(c => (
+                  <tr key={c.id} style={{ borderBottom: `1px solid ${C.border}` }}>
+                    <td style={{ padding: '8px', fontWeight: 700 }}>{c.name}</td>
+                    <td style={{ padding: '8px', color: C.muted }}>{c.phone || '—'}</td>
+                    <td style={{ padding: '8px', color: C.muted }}>{c.email || '—'}</td>
+                    <td style={{ padding: '8px', color: C.muted, maxWidth: '180px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.notes || '—'}</td>
+                    <td style={{ padding: '8px', color: C.muted, fontSize: '10px' }}>{c.createdAt}</td>
+                    <td style={{ padding: '8px', whiteSpace: 'nowrap' }}>
+                      <button onClick={() => startEdit(c)} style={Btn('secondary', { padding: '3px 10px', fontSize: '10px', marginRight: '4px' })}>Edit</button>
+                      <button onClick={() => setClients(p => p.filter(x => x.id !== c.id))} style={Btn('danger', { padding: '3px 8px', fontSize: '10px' })}>✕</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        }
+      </div>
+    </div>
+  );
+}
+
+
+
+const STATUS_COLORS={
+  'Not Started':'#888',
+  'In Progress':C.accent,
+  'Assistance Needed':C.danger,
+  'Approval Needed':'#7a4fa3',
+  'Complete':C.success,
+};
+
+function CalendarView({ projects, month, setMonth, providers }) {
+  const [yr, mo] = month.split('-').map(Number);
+  const [selectedDay, setSelectedDay] = useState(null);
+
+  const firstDay = new Date(yr, mo - 1, 1).getDay();
+  const daysInMonth = new Date(yr, mo, 0).getDate();
+  const ml = new Date(month + '-02').toLocaleString('default', { month: 'long', year: 'numeric' });
+
+  // Gather all events: tasks with due dates + project due dates
+  const events = {};
+  const addEvent = (day, event) => {
+    if (!events[day]) events[day] = [];
+    events[day].push(event);
+  };
+
+  projects.forEach(proj => {
+    // Project due date
+    if (proj.dueDate) {
+      const [py, pm, pd] = proj.dueDate.split('-').map(Number);
+      if (py === yr && pm === mo) {
+        addEvent(pd, { type: 'project', title: proj.title, status: proj.status, color: C.navy });
+      }
+    }
+    // Task due dates
+    (proj.tasks || []).forEach(task => {
+      if (task.dueDate) {
+        const [ty, tm, td] = task.dueDate.split('-').map(Number);
+        if (ty === yr && tm === mo) {
+          const assigneeName = providers.find(p => p.id === task.assignedTo)?.name || task.assignedTo || 'Unassigned';
+          addEvent(td, { type: 'task', title: task.title, project: proj.title, status: task.status, assignee: assigneeName, color: STATUS_COLORS[task.status] || C.muted });
+        }
+      }
+    });
+  });
+
+  const selectedEvents = selectedDay ? (events[selectedDay] || []) : [];
+  const today = new Date().toISOString().split('T')[0];
+  const todayDay = today.startsWith(month) ? parseInt(today.split('-')[2]) : null;
+
+  function prevMonth() {
+    const d = new Date(yr, mo - 2, 1);
+    setMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+  }
+  function nextMonth() {
+    const d = new Date(yr, mo, 1);
+    setMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+  }
+
+  const cells = [];
+  for (let i = 0; i < firstDay; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+
+  return (
+    <div>
+      <div style={cardS()}>
+        {/* HEADER */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+          <button onClick={prevMonth} style={{ ...Btn('secondary'), padding: '6px 14px' }}>‹</button>
+          <div style={{ fontFamily: serif, fontSize: '22px', fontWeight: 300, color: C.navy }}>{ml}</div>
+          <button onClick={nextMonth} style={{ ...Btn('secondary'), padding: '6px 14px' }}>›</button>
+        </div>
+
+        {/* DAY LABELS */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: '2px', marginBottom: '4px' }}>
+          {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
+            <div key={d} style={{ textAlign: 'center', fontSize: '9px', fontWeight: 700, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.08em', padding: '4px 0' }}>{d}</div>
+          ))}
+        </div>
+
+        {/* CALENDAR GRID */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: '3px' }}>
+          {cells.map((day, i) => {
+            if (!day) return <div key={`e${i}`} style={{ minHeight: '70px' }} />;
+            const dayEvents = events[day] || [];
+            const isToday = day === todayDay;
+            const isSelected = day === selectedDay;
+            return (
+              <div key={day} onClick={() => setSelectedDay(isSelected ? null : day)}
+                style={{ minHeight: '70px', background: isSelected ? C.accentBg : isToday ? C.navy + '0d' : C.bg, borderRadius: '8px', padding: '6px', cursor: dayEvents.length > 0 ? 'pointer' : 'default', border: `1px solid ${isSelected ? C.accent : isToday ? C.accent + '55' : C.border}`, transition: 'all 0.15s' }}>
+                <div style={{ fontSize: '11px', fontWeight: isToday ? 700 : 500, color: isToday ? C.accent : C.text, marginBottom: '4px' }}>{day}</div>
+                {dayEvents.slice(0, 2).map((ev, j) => (
+                  <div key={j} style={{ fontSize: '8px', fontWeight: 600, color: ev.color, background: ev.color + '18', borderRadius: '3px', padding: '1px 4px', marginBottom: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {ev.type === 'project' ? '📁' : '✓'} {ev.title}
+                  </div>
+                ))}
+                {dayEvents.length > 2 && <div style={{ fontSize: '8px', color: C.muted }}>+{dayEvents.length - 2} more</div>}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* SELECTED DAY PANEL */}
+      {selectedDay && (
+        <div style={cardS()}>
+          <div style={lblS()}>{ml} {selectedDay} — {selectedEvents.length} item{selectedEvents.length !== 1 ? 's' : ''}</div>
+          {selectedEvents.length === 0
+            ? <div style={{ color: C.muted, fontSize: '12px' }}>Nothing scheduled.</div>
+            : selectedEvents.map((ev, i) => (
+              <div key={i} style={{ display: 'flex', gap: '10px', padding: '10px 12px', borderRadius: '8px', marginBottom: '6px', background: C.bg, border: `1px solid ${C.border}`, borderLeft: `4px solid ${ev.color}` }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 700, fontSize: '12px', color: C.navy }}>{ev.title}</div>
+                  {ev.type === 'task' && <div style={{ fontSize: '10px', color: C.muted, marginTop: '2px' }}>📁 {ev.project} · 👤 {ev.assignee}</div>}
+                  {ev.type === 'project' && <div style={{ fontSize: '10px', color: C.muted, marginTop: '2px' }}>Project deadline</div>}
+                </div>
+                <span style={{ fontSize: '9px', fontWeight: 700, padding: '2px 8px', borderRadius: '999px', background: ev.color + '22', color: ev.color, alignSelf: 'flex-start', whiteSpace: 'nowrap' }}>{ev.status}</span>
+              </div>
+            ))
+          }
+        </div>
+      )}
+
+      {/* LEGEND */}
+      <div style={{ display: 'flex', gap: '14px', flexWrap: 'wrap', padding: '4px 0' }}>
+        {Object.entries(STATUS_COLORS).map(([s, col]) => (
+          <div key={s} style={{ display: 'flex', gap: '5px', alignItems: 'center' }}>
+            <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: col }} />
+            <span style={{ fontSize: '10px', color: C.muted }}>{s}</span>
+          </div>
+        ))}
+        <div style={{ display: 'flex', gap: '5px', alignItems: 'center' }}>
+          <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: C.navy }} />
+          <span style={{ fontSize: '10px', color: C.muted }}>Project deadline</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+/* ─── IMPORTANT DETAILS BLOCK ───────────────────────────── */
+export function ImportantDetailsBlock({personId,personName,importantDetails,setImportantDetails}){
+  const details = importantDetails[personId] || {notes:'',links:[]};
+  const[editing,setEditing]=useState(false);
+  const[draft,setDraft]=useState(details.notes||'');
+  const[linkForm,setLinkForm]=useState({label:'',url:''});
+  const[addingLink,setAddingLink]=useState(false);
+
+  function saveNotes(){
+    setImportantDetails(p=>({...p,[personId]:{...(p[personId]||{links:[]}),notes:draft}}));
+    setEditing(false);
+  }
+  function addLink(){
+    if(!linkForm.url)return;
+    const newLink={id:uid(),label:linkForm.label||linkForm.url,url:linkForm.url.startsWith('http')?linkForm.url:`https://${linkForm.url}`};
+    setImportantDetails(p=>({...p,[personId]:{...(p[personId]||{notes:''}),links:[...(p[personId]?.links||[]),newLink]}}));
+    setLinkForm({label:'',url:''});setAddingLink(false);
+  }
+  function delLink(id){
+    setImportantDetails(p=>({...p,[personId]:{...(p[personId]||{notes:''}),links:(p[personId]?.links||[]).filter(l=>l.id!==id)}}));
+  }
+
+  // Simple text renderer: **text** = bold, lines starting with - = bullet
+  function renderNotes(text){
+    if(!text)return null;
+    return text.split('\n').map((line,i)=>{
+      const isBullet=line.trim().startsWith('-');
+      const content=isBullet?line.trim().slice(1).trim():line;
+      const parts=content.split(/\*\*([^*]+)\*\*/g);
+      const rendered=parts.map((p,j)=>j%2===1?<strong key={j}>{p}</strong>:p);
+      return(
+        <div key={i} style={{display:'flex',gap:'6px',marginBottom:'3px',alignItems:'flex-start'}}>
+          {isBullet&&<span style={{color:C.accent,fontWeight:700,fontSize:'14px',lineHeight:'18px',flexShrink:0}}>•</span>}
+          <span style={{fontSize:'12px',color:C.text,lineHeight:'18px'}}>{rendered}</span>
+        </div>
+      );
+    });
+  }
+
+  const hasContent=details.notes||(details.links||[]).length>0;
+
+  return(
+    <div style={{...cardS(),border:`2px solid ${C.accent}33`,background:'#fafcfd',marginBottom:'14px'}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'10px'}}>
+        <div style={{display:'flex',gap:'8px',alignItems:'center'}}>
+          <span style={{fontSize:'16px'}}>📌</span>
+          <div>
+            <div style={{fontWeight:700,fontSize:'13px',color:C.navy}}>Important Details</div>
+            {personName&&<div style={{fontSize:'10px',color:C.muted}}>{personName}</div>}
+          </div>
+        </div>
+        <div style={{display:'flex',gap:'6px'}}>
+          <button onClick={()=>setAddingLink(!addingLink)} style={Btn('secondary',{padding:'5px 12px',fontSize:'10px'})}>🔗 {addingLink?'Cancel':'Add Link'}</button>
+          <button onClick={()=>{setEditing(!editing);setDraft(details.notes||'');}} style={Btn(editing?'primary':'accent',{padding:'5px 12px',fontSize:'10px'})}>{editing?'Cancel':'✏️ Edit Notes'}</button>
+        </div>
+      </div>
+
+      {/* ADD LINK FORM */}
+      {addingLink&&(
+        <div style={{background:C.bg,borderRadius:'8px',padding:'10px 12px',marginBottom:'10px',border:`1px solid ${C.border}`}}>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 2fr auto',gap:'8px',alignItems:'end'}}>
+            <div><label style={lblS()}>Label</label><input value={linkForm.label} onChange={e=>setLinkForm(p=>({...p,label:e.target.value}))} placeholder="e.g. Training Doc" style={inp()}/></div>
+            <div><label style={lblS()}>URL *</label><input value={linkForm.url} onChange={e=>setLinkForm(p=>({...p,url:e.target.value}))} placeholder="https://…" style={inp()}/></div>
+            <button onClick={addLink} style={{...Btn('primary'),padding:'8px 14px',alignSelf:'flex-end'}}>Save</button>
+          </div>
+        </div>
+      )}
+
+      {/* NOTES EDITOR */}
+      {editing&&(
+        <div style={{marginBottom:'10px'}}>
+          <div style={{fontSize:'10px',color:C.muted,marginBottom:'6px'}}>
+            Formatting: <strong>**bold text**</strong> for bold · Start line with <strong>-</strong> for bullet points · Press Enter for new line
+          </div>
+          <textarea value={draft} onChange={e=>setDraft(e.target.value)}
+            placeholder="Add important notes here...&#10;- Use - for bullet points&#10;- Use **bold** for bold text"
+            rows={6}
+            style={{...inp(),resize:'vertical',lineHeight:'1.6',fontFamily:sans,fontSize:'12px',background:'#fff'}}/>
+          <button onClick={saveNotes} style={{...Btn('primary'),marginTop:'8px',padding:'7px 20px'}}>✓ Save Notes</button>
+        </div>
+      )}
+
+      {/* DISPLAY */}
+      {!editing&&(
+        <div>
+          {/* LINKS */}
+          {(details.links||[]).length>0&&(
+            <div style={{display:'flex',gap:'8px',flexWrap:'wrap',marginBottom:details.notes?'10px':'0'}}>
+              {(details.links||[]).map(l=>(
+                <div key={l.id} style={{display:'flex',alignItems:'center',gap:'4px',background:C.accentBg,borderRadius:'999px',padding:'3px 10px 3px 12px',border:`1px solid ${C.accent}44`}}>
+                  <a href={l.url} target="_blank" rel="noreferrer" style={{fontSize:'11px',color:C.accent,fontWeight:700,textDecoration:'none'}}>🔗 {l.label}</a>
+                  <button onClick={()=>delLink(l.id)} style={{background:'none',border:'none',color:C.muted,cursor:'pointer',fontSize:'12px',padding:'0 2px',lineHeight:1}}>×</button>
+                </div>
+              ))}
+            </div>
+          )}
+          {/* NOTES */}
+          {details.notes&&<div style={{marginTop:(details.links||[]).length>0?'0':'0'}}>{renderNotes(details.notes)}</div>}
+          {!hasContent&&<div style={{color:C.muted,fontSize:'11px'}}>No details yet — click "✏️ Edit Notes" to add notes or "🔗 Add Link" to save a link.</div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+// These constants and helpers are passed in or defined locally
+
+const STATUS_OPTS=['Not Started','In Progress','Assistance Needed','Approval Needed','Complete'];
+const PRIORITY_OPTS=['Low','Medium','High','Urgent'];
+const statusColor={
+  'Not Started':{bg:'#f0f0f0',color:'#888'},
+  'In Progress':{bg:'#e6f3fa',color:'#3a7fa3'},
+  'Assistance Needed':{bg:'#fdeaea',color:'#c03030'},
+  'Approval Needed':{bg:'#f0eaf8',color:'#7a4fa3'},
+  'Complete':{bg:'#e6f5ee',color:'#2e9e68'},
+};
+const priorityColor={
+  'Low':{bg:'#f0f0f0',color:'#888'},
+  'Medium':{bg:'#eaf2f3',color:'#7a9fa3'},
+  'High':{bg:'#fef5dc',color:'#b87d00'},
+  'Urgent':{bg:'#fdeaea',color:'#c03030'},
+};
+const StatusBadge=({s})=>{const cs=statusColor[s]||{bg:'#eee',color:'#888'};return<span style={{display:'inline-block',padding:'2px 10px',borderRadius:'999px',background:cs.bg,color:cs.color,fontSize:'9px',fontWeight:700,letterSpacing:'0.05em'}}>{s}</span>;};
+const PriBadge=({p})=>{const cs=priorityColor[p]||{bg:'#eee',color:'#888'};return<span style={{display:'inline-block',padding:'2px 8px',borderRadius:'999px',background:cs.bg,color:cs.color,fontSize:'9px',fontWeight:700}}>{p}</span>;};
+
+/* ── PROJECTS VIEW (admin) ── */
+export function ProjectsView({projects,setProjects,providers,vaUsers,setVaUsers,creds,setCreds,emailConfig}){
+  const[tab,setTab]=useState('projects');
+  const[showForm,setShowForm]=useState(false);
+  const[editId,setEditId]=useState(null);
+  const[expandId,setExpandId]=useState(null);
+  const[filter,setFilter]=useState('All');
+  const[assigneeFilter,setAssigneeFilter]=useState('All');
+
+  const allAssignees=[
+    ...providers.map(p=>({id:p.id,name:p.name,type:'staff',color:p.color})),
+    ...vaUsers.map(v=>({id:v.id,name:v.name,type:'va',color:'#9a6fa3'})),
+  ];
+
+  const blankP=()=>({id:uid(),title:'',description:'',assignedTo:[],dueDate:'',priority:'Medium',status:'Not Started',tasks:[],notes:[],createdAt:new Date().toISOString().split('T')[0],hoursLogged:{}});
+  const blankT=()=>({id:uid(),title:'',status:'Not Started',assignedTo:'',notes:'',dueDate:''});
+  const[form,setForm]=useState(blankP());
+  const[taskForm,setTaskForm]=useState(blankT());
+  const[addingTaskTo,setAddingTaskTo]=useState(null);
+  const[addingNoteTo,setAddingNoteTo]=useState(null);
+  const blankNote=()=>({id:uid(),text:'',link:'',createdAt:new Date().toISOString().split('T')[0]});
+  const[noteForm,setNoteForm]=useState(blankNote());
+
+  const filtered=projects.filter(p=>{
+    const statusMatch=filter==='All'||p.status===filter;
+    const assigneeMatch=assigneeFilter==='All'||p.assignedTo?.includes(assigneeFilter)||(p.tasks||[]).some(t=>t.assignedTo===assigneeFilter);
+    return statusMatch&&assigneeMatch;
+  });
+  const stats={
+    total:projects.length,
+    active:projects.filter(p=>p.status==='In Progress').length,
+    review:projects.filter(p=>p.status==='Review').length,
+    done:projects.filter(p=>p.status==='Complete').length,
+  };
+
+  function saveProject(){
+    if(!form.title)return;
+    const p2={...form,id:editId||uid()};
+    if(editId)setProjects(prev=>prev.map(x=>x.id===editId?p2:x));
+    else setProjects(prev=>[...prev,p2]);
+    setForm(blankP());setShowForm(false);setEditId(null);
+  }
+
+  function updateProject(id,updates){setProjects(prev=>prev.map(x=>x.id===id?{...x,...updates}:x));}
+
+  function addTask(projId){
+    if(!taskForm.title)return;
+    const t2={...taskForm,id:uid()};
+    setProjects(prev=>prev.map(x=>x.id===projId?{...x,tasks:[...(x.tasks||[]),t2]}:x));
+    setTaskForm(blankT());setAddingTaskTo(null);
+  }
+
+  function addNote(projId){
+    if(!noteForm.text&&!noteForm.link)return;
+    const n2={...noteForm,id:uid()};
+    setProjects(prev=>prev.map(x=>x.id===projId?{...x,notes:[...(x.notes||[]),n2]}:x));
+    setNoteForm(blankNote());setAddingNoteTo(null);
+  }
+  function delNote(projId,noteId){
+    setProjects(prev=>prev.map(x=>x.id===projId?{...x,notes:(x.notes||[]).filter(n=>n.id!==noteId)}:x));
+  }
+  function updateTask(projId,taskId,updates){
+    setProjects(prev=>prev.map(x=>x.id===projId?{...x,tasks:(x.tasks||[]).map(t=>t.id===taskId?{...t,...updates}:t)}:x));
+  }
+
+  function delTask(projId,taskId){
+    setProjects(prev=>prev.map(x=>x.id===projId?{...x,tasks:(x.tasks||[]).filter(t=>t.id!==taskId)}:x));
+  }
+
+  const completePct=(p)=>{
+    if(!p.tasks||p.tasks.length===0)return 0;
+    return Math.round((p.tasks.filter(t=>t.status==='Complete').length/p.tasks.length)*100);
+  };
+
+  // VA management
+  const blankVA=()=>({id:uid(),name:'',role:'Virtual Assistant',hourlyRate:0,username:'',password:'VA2025'});
+  const[vaForm,setVaForm]=useState(blankVA());
+  const[showVAForm,setShowVAForm]=useState(false);
+
+  function saveVA(){
+    if(!vaForm.name||!vaForm.username)return;
+    const v2={...vaForm,id:vaForm.id||uid()};
+    setVaUsers(prev=>{const exists=prev.find(x=>x.id===v2.id);return exists?prev.map(x=>x.id===v2.id?v2:x):[...prev,v2];});
+    setCreds(c=>({...c,vas:{...(c.vas||{}),[v2.id]:{id:v2.id,name:v2.name,username:v2.username,password:v2.password}}}));
+    setVaForm(blankVA());setShowVAForm(false);
+  }
+
+  return(
+    <div>
+      {/* TAB NAV */}
+      <div style={{display:'flex',gap:'4px',background:C.card,borderRadius:'10px',padding:'4px',marginBottom:'16px',width:'fit-content',border:`1px solid ${C.border}`,boxShadow:C.shadow}}>
+        {[['projects','📋 Projects'],['team','👤 VA Management']].map(([t,l])=>(
+          <button key={t} onClick={()=>setTab(t)} style={{padding:'7px 18px',borderRadius:'7px',border:'none',cursor:'pointer',background:tab===t?C.navy:'transparent',color:tab===t?'#fff':C.muted,fontFamily:sans,fontSize:'12px',fontWeight:600}}>{l}</button>
+        ))}
+      </div>
+
+      {/* ── PROJECTS TAB ── */}
+      {tab==='projects'&&(
+        <>
+          {/* STATS */}
+          <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(130px,1fr))',gap:'10px',marginBottom:'14px'}}>
+            {[['Total Projects',stats.total,''],['In Progress',stats.active,C.accent],['In Review',stats.review,C.warn],['Complete',stats.done,C.success]].map(([l,v,col])=>(
+              <div key={l} style={cardS({marginBottom:0})}>
+                <div style={lblS()}>{l}</div>
+                <div style={{fontSize:'26px',fontWeight:300,fontFamily:serif,color:col||C.text}}>{v}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* FILTERS + ADD */}
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'12px',flexWrap:'wrap',gap:'10px'}}>
+            <div style={{display:'flex',gap:'10px',flexWrap:'wrap',alignItems:'center'}}>
+              <div style={{display:'flex',gap:'6px',flexWrap:'wrap'}}>
+              {['All',...STATUS_OPTS].map(f=>(
+
+                <button key={f} onClick={()=>setFilter(f)} style={{padding:'5px 12px',borderRadius:'20px',border:`1px solid ${filter===f?C.navy:C.border}`,background:filter===f?C.navy:C.card,color:filter===f?'#fff':C.muted,cursor:'pointer',fontFamily:sans,fontSize:'11px',fontWeight:600}}>{f}</button>
+              ))}
+              </div>
+              <div style={{display:'flex',gap:'8px',alignItems:'center'}}>
+                <span style={{fontSize:'10px',fontWeight:700,color:C.muted,textTransform:'uppercase',letterSpacing:'0.08em',whiteSpace:'nowrap'}}>Assigned to:</span>
+                <select value={assigneeFilter} onChange={e=>setAssigneeFilter(e.target.value)} style={{...sel(),padding:'5px 12px',fontSize:'11px',width:'160px',borderRadius:'20px'}}>
+                  <option value='All'>Everyone</option>
+                  {allAssignees.map(a=><option key={a.id} value={a.id}>{a.name}</option>)}
+                </select>
+              </div>
+            </div>
+            <button style={Btn('primary')} onClick={()=>{setShowForm(!showForm);setEditId(null);setForm(blankP());}}>
+              {showForm?'✕ Cancel':'+ New Project'}
+            </button>
+          </div>
+
+          {/* PROJECT FORM */}
+          {showForm&&(
+            <div style={cardS()}>
+              <div style={{fontSize:'9px',fontWeight:700,letterSpacing:'0.1em',textTransform:'uppercase',color:C.accent,marginBottom:'12px'}}>{editId?'Edit':'New'} Project</div>
+              <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(150px,1fr))',gap:'10px',marginBottom:'12px'}}>
+                <div style={{gridColumn:'span 2'}}><label style={lblS()}>Project Title *</label><input value={form.title} onChange={e=>setForm(p=>({...p,title:e.target.value}))} placeholder="Project name" style={inp()}/></div>
+                <div style={{gridColumn:'span 2'}}><label style={lblS()}>Description</label><input value={form.description} onChange={e=>setForm(p=>({...p,description:e.target.value}))} placeholder="What needs to get done?" style={inp()}/></div>
+                <div><label style={lblS()}>Priority</label><select value={form.priority} onChange={e=>setForm(p=>({...p,priority:e.target.value}))} style={sel()}>{PRIORITY_OPTS.map(o=><option key={o}>{o}</option>)}</select></div>
+                <div><label style={lblS()}>Status</label><select value={form.status} onChange={e=>setForm(p=>({...p,status:e.target.value}))} style={sel()}>{STATUS_OPTS.map(o=><option key={o}>{o}</option>)}</select></div>
+                <div><label style={lblS()}>Due Date</label><input type="date" value={form.dueDate} onChange={e=>setForm(p=>({...p,dueDate:e.target.value}))} style={inp()}/></div>
+                <div><label style={lblS()}>Assign To</label>
+                  <select multiple value={form.assignedTo} onChange={e=>setForm(p=>({...p,assignedTo:Array.from(e.target.selectedOptions).map(o=>o.value)}))} style={{...sel(),height:'80px'}}>
+                    {allAssignees.map(a=><option key={a.id} value={a.id}>{a.name} ({a.type})</option>)}
+                  </select>
+                  <div style={{fontSize:'9px',color:C.muted,marginTop:'2px'}}>Hold Cmd/Ctrl to select multiple</div>
+                </div>
+              </div>
+              <button style={Btn('primary')} onClick={saveProject}>✓ Save Project</button>
+            </div>
+          )}
+
+          {/* PROJECT CARDS */}
+          {filtered.length===0
+            ?<div style={cardS({textAlign:'center',padding:'40px',color:C.muted})}>No projects yet. Click "+ New Project" to get started.</div>
+            :filtered.map(proj=>{
+              const expanded=expandId===proj.id;
+              const pct=completePct(proj);
+              const assigneeNames=proj.assignedTo?.map(id=>allAssignees.find(a=>a.id===id)?.name||id).join(', ')||'Unassigned';
+              const today=new Date().toISOString().split('T')[0];
+              const overdue=proj.dueDate&&proj.dueDate<today&&proj.status!=='Complete';
+              return(
+                <div key={proj.id} style={cardS()}>
+                  {/* PROJECT HEADER */}
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:'10px',flexWrap:'wrap',gap:'8px'}}>
+                    <div style={{flex:1,minWidth:'200px'}}>
+                      <div style={{display:'flex',gap:'8px',alignItems:'center',flexWrap:'wrap',marginBottom:'4px'}}>
+                        <span style={{fontWeight:700,fontSize:'15px',color:C.navy}}>{proj.title}</span>
+                        <StatusBadge s={proj.status}/>
+                        <PriBadge p={proj.priority}/>
+                        {overdue&&<span style={{fontSize:'9px',fontWeight:700,color:C.danger,background:C.dangerBg,padding:'2px 8px',borderRadius:'999px'}}>⚠ Overdue</span>}
+                      </div>
+                      {proj.description&&<div style={{fontSize:'11px',color:C.muted,marginBottom:'4px'}}>{proj.description}</div>}
+                      <div style={{fontSize:'10px',color:C.muted,display:'flex',gap:'14px',flexWrap:'wrap'}}>
+                        <span>👤 {assigneeNames}</span>
+                        {proj.dueDate&&<span>📅 Due {proj.dueDate}</span>}
+                        <span>✅ {proj.tasks?.filter(t=>t.status==='Complete').length||0}/{proj.tasks?.length||0} tasks</span>
+                      </div>
+                    </div>
+                    <div style={{display:'flex',gap:'6px',alignItems:'center',flexShrink:0}}>
+                      <select value={proj.status} onChange={e=>updateProject(proj.id,{status:e.target.value})} style={{...sel(),padding:'5px 8px',fontSize:'11px',width:'130px'}}>
+                        {STATUS_OPTS.map(o=><option key={o}>{o}</option>)}
+                      </select>
+                      <button onClick={()=>{setEditId(proj.id);setForm(proj);setShowForm(true);setExpandId(null);}} style={Btn('secondary',{padding:'5px 10px',fontSize:'11px'})}>Edit</button>
+                      <button onClick={()=>setExpandId(expanded?null:proj.id)} style={Btn('accent',{padding:'5px 10px',fontSize:'11px'})}>{expanded?'▲ Hide':'▼ Tasks'}</button>
+                      <button onClick={()=>setProjects(prev=>prev.filter(x=>x.id!==proj.id))} style={Btn('danger',{padding:'5px 8px',fontSize:'11px'})}>✕</button>
+                    </div>
+                  </div>
+
+                  {/* PROGRESS BAR */}
+                  {(proj.tasks?.length||0)>0&&(
+                    <div style={{marginBottom:expanded?'14px':'0'}}>
+                      <div style={{display:'flex',justifyContent:'space-between',fontSize:'10px',color:C.muted,marginBottom:'4px'}}><span>Progress</span><span style={{fontWeight:700,color:pct===100?C.success:C.navy}}>{pct}%</span></div>
+                      <div style={{background:C.bg,borderRadius:'999px',height:'6px',overflow:'hidden'}}>
+                        <div style={{height:'100%',borderRadius:'999px',width:`${pct}%`,background:pct===100?C.success:C.accent,transition:'width 0.5s'}}/>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* TASKS */}
+                  {expanded&&(
+                    <div style={{borderTop:`1px solid ${C.border}`,paddingTop:'14px'}}>
+                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'10px'}}>
+                        <div style={{fontSize:'10px',fontWeight:700,textTransform:'uppercase',letterSpacing:'0.08em',color:C.accent}}>Tasks</div>
+                        <button onClick={()=>setAddingTaskTo(addingTaskTo===proj.id?null:proj.id)} style={Btn('secondary',{padding:'4px 12px',fontSize:'10px'})}>+ Add Task</button>
+                      </div>
+
+                      {/* ADD TASK FORM */}
+                      {addingTaskTo===proj.id&&(
+                        <div style={{background:C.bg,borderRadius:'8px',padding:'12px',marginBottom:'12px',border:`1px solid ${C.border}`}}>
+                          <div style={{display:'grid',gridTemplateColumns:'2fr 1fr 1fr 1fr auto',gap:'8px',alignItems:'end'}}>
+                            <div><label style={lblS()}>Task Title *</label><input value={taskForm.title} onChange={e=>setTaskForm(p=>({...p,title:e.target.value}))} placeholder="Task description" style={inp()}/></div>
+                            <div><label style={lblS()}>Assign To</label>
+                              <select value={taskForm.assignedTo} onChange={e=>setTaskForm(p=>({...p,assignedTo:e.target.value}))} style={sel()}>
+                                <option value="">Anyone</option>
+                                {allAssignees.map(a=><option key={a.id} value={a.id}>{a.name}</option>)}
+                              </select>
+                            </div>
+                            <div><label style={lblS()}>Due Date</label><input type="date" value={taskForm.dueDate} onChange={e=>setTaskForm(p=>({...p,dueDate:e.target.value}))} style={inp()}/></div>
+                            <div><label style={lblS()}>Notes</label><input value={taskForm.notes} onChange={e=>setTaskForm(p=>({...p,notes:e.target.value}))} placeholder="Optional notes" style={inp()}/></div>
+                            <div><label style={lblS()}>Repeat</label><select value={taskForm.repeat||'none'} onChange={e=>setTaskForm(p=>({...p,repeat:e.target.value}))} style={{...sel(),padding:'5px 8px',fontSize:'11px'}}>{'none,weekly,monthly'.split(',').map(o=><option key={o} value={o}>{o.charAt(0).toUpperCase()+o.slice(1)}</option>)}</select></div>
+                            <button onClick={()=>addTask(proj.id)} style={{...Btn('primary'),padding:'8px 12px',alignSelf:'flex-end'}}>Add</button>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* TASK LIST */}
+                      {(proj.tasks||[]).length===0
+                        ?<div style={{color:C.muted,fontSize:'11px',textAlign:'center',padding:'14px'}}>No tasks yet. Add the first one above.</div>
+                        :(proj.tasks||[]).map(task=>(
+                          <div key={task.id} style={{padding:'10px 12px',borderRadius:'8px',marginBottom:'6px',background:task.status==='Complete'?C.successBg:task.status==='Assistance Needed'?C.dangerBg:task.status==='Approval Needed'?'#f0eaf8':C.bg,border:`1px solid ${task.status==='Complete'?C.success+'33':task.status==='Assistance Needed'?C.danger+'33':task.status==='Approval Needed'?'#7a4fa355':C.border}`}}>
+                            <div style={{display:'flex',alignItems:'center',gap:'10px'}}>
+                              <input type="checkbox" checked={task.status==='Complete'} onChange={e=>updateTask(proj.id,task.id,{status:e.target.checked?'Complete':'In Progress'})} style={{flexShrink:0}}/>
+                              <div style={{flex:1,minWidth:0}}>
+                                <div style={{fontSize:'12px',fontWeight:600,color:task.status==='Complete'?C.muted:C.text,textDecoration:task.status==='Complete'?'line-through':'none'}}>{task.title}</div>
+                                <div style={{fontSize:'9px',color:C.muted,marginTop:'1px',display:'flex',gap:'8px',flexWrap:'wrap'}}>
+                                  {task.assignedTo&&<span>👤 {allAssignees.find(a=>a.id===task.assignedTo)?.name||task.assignedTo}</span>}
+                                  {task.dueDate&&<span>📅 {task.dueDate}</span>}
+                                </div>
+                              </div>
+                              <select value={task.status} onChange={e=>updateTask(proj.id,task.id,{status:e.target.value})} style={{...sel(),padding:'3px 6px',fontSize:'10px',width:'150px',flexShrink:0}}>
+                                {STATUS_OPTS.map(o=><option key={o}>{o}</option>)}
+                              </select>
+                              <button onClick={()=>delTask(proj.id,task.id)} style={{background:'none',border:'none',color:C.muted,cursor:'pointer',fontSize:'14px',flexShrink:0}}>✕</button>
+                            </div>
+                            <div style={{marginTop:'8px',paddingLeft:'28px'}}>
+                              <input value={task.notes||''} onChange={e=>updateTask(proj.id,task.id,{notes:e.target.value})} placeholder="Add a note…" style={{...inp(),background:'rgba(255,255,255,0.7)',fontSize:'11px',padding:'5px 10px',color:C.muted}}/>
+                            </div>
+                          </div>
+                        ))
+                      }
+                    </div>
+                  )}
+
+                  {/* ── NOTES & LINKS (project level) ── */}
+                  <div style={{marginTop:'14px',borderTop:`1px solid ${C.border}`,paddingTop:'14px'}}>
+                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'10px'}}>
+                      <div style={{fontSize:'10px',fontWeight:700,textTransform:'uppercase',letterSpacing:'0.08em',color:C.accent}}>📝 Notes & Links</div>
+                      <button onClick={()=>setAddingNoteTo(addingNoteTo===proj.id?null:proj.id)} style={Btn('secondary',{padding:'4px 12px',fontSize:'10px'})}>{addingNoteTo===proj.id?'✕ Cancel':'+ Add Note'}</button>
+                    </div>
+                    {addingNoteTo===proj.id&&(
+                      <div style={{background:C.bg,borderRadius:'8px',padding:'12px',marginBottom:'10px',border:`1px solid ${C.border}`}}>
+                        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr auto',gap:'8px',alignItems:'end'}}>
+                          <div><label style={lblS()}>Note *</label><input value={noteForm.text} onChange={e=>setNoteForm(p=>({...p,text:e.target.value}))} placeholder="Type your note here…" style={inp()}/></div>
+                          <div><label style={lblS()}>Live Link (optional)</label><input value={noteForm.link} onChange={e=>setNoteForm(p=>({...p,link:e.target.value}))} placeholder="https://…" style={inp()}/></div>
+                          <button onClick={()=>addNote(proj.id)} style={{...Btn('primary'),padding:'8px 14px',alignSelf:'flex-end'}}>Save</button>
+                        </div>
+                      </div>
+                    )}
+                    {(proj.notes||[]).length===0&&addingNoteTo!==proj.id
+                      ?<div style={{color:C.muted,fontSize:'11px',padding:'6px 0'}}>No notes yet — add links, reminders, or references.</div>
+                      :(proj.notes||[]).map(note=>(
+                        <div key={note.id} style={{display:'flex',alignItems:'flex-start',gap:'10px',padding:'10px 12px',borderRadius:'8px',marginBottom:'6px',background:C.bg,border:`1px solid ${C.border}`}}>
+                          <div style={{flex:1,minWidth:0}}>
+                            <div style={{fontSize:'12px',color:C.text,lineHeight:1.5}}>{note.text}</div>
+                            {note.link&&(
+                              <a href={note.link.startsWith('http')?note.link:`https://${note.link}`} target="_blank" rel="noreferrer"
+                                style={{fontSize:'11px',color:C.accent,fontWeight:600,textDecoration:'none',display:'inline-flex',alignItems:'center',gap:'4px',marginTop:'5px',padding:'3px 10px',background:C.accentBg,borderRadius:'999px'}}>
+                                🔗 {note.link.replace(/^https?:\/\//,'')}
+                              </a>
+                            )}
+                            <div style={{fontSize:'9px',color:C.muted,marginTop:'5px'}}>{note.createdAt}</div>
+                          </div>
+                          <button onClick={()=>delNote(proj.id,note.id)} style={{background:'none',border:'none',color:C.muted,cursor:'pointer',fontSize:'13px',flexShrink:0}}>✕</button>
+                        </div>
+                      ))
+                    }
+                  </div>
+                </div>
+              );
+            })
+          }
+        </>
+      )}
+
+      {/* ── VA MANAGEMENT TAB ── */}
+      {tab==='team'&&(
+        <>
+          <div style={cardS()}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'12px'}}>
+              <div><div style={lblS()}>Virtual Assistant Accounts</div><div style={{fontSize:'10px',color:C.muted,marginTop:'2px'}}>VAs have their own login and see only tasks assigned to them. Hourly tracking included.</div></div>
+              <button style={Btn('primary')} onClick={()=>setShowVAForm(!showVAForm)}>{showVAForm?'✕ Cancel':'+ Add VA'}</button>
+            </div>
+            {showVAForm&&(
+              <div style={{background:C.bg,borderRadius:'10px',padding:'14px',marginBottom:'14px',border:`1px solid ${C.border}`}}>
+                <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(140px,1fr))',gap:'10px',marginBottom:'10px'}}>
+                  <div><label style={lblS()}>Full Name</label><input value={vaForm.name} onChange={e=>setVaForm(p=>({...p,name:e.target.value}))} placeholder="VA name" style={inp()}/></div>
+                  <div><label style={lblS()}>Role / Title</label><input value={vaForm.role} onChange={e=>setVaForm(p=>({...p,role:e.target.value}))} placeholder="Virtual Assistant" style={inp()}/></div>
+                  <div><label style={lblS()}>Hourly Rate ($)</label><input type="number" value={vaForm.hourlyRate} onChange={e=>setVaForm(p=>({...p,hourlyRate:+e.target.value||0}))} style={inp()}/></div>
+                  <div><label style={lblS()}>Username</label><input value={vaForm.username} onChange={e=>setVaForm(p=>({...p,username:e.target.value}))} placeholder="Login username" style={inp()}/></div>
+                  <div><label style={lblS()}>Password</label><input value={vaForm.password} onChange={e=>setVaForm(p=>({...p,password:e.target.value}))} style={inp()}/></div>
+                </div>
+                <button style={Btn('primary')} onClick={saveVA}>✓ Save VA</button>
+              </div>
+            )}
+            {vaUsers.length===0
+              ?<div style={{textAlign:'center',padding:'28px',color:C.muted}}>No VA accounts yet.</div>
+              :vaUsers.map(va=>{
+                const vaTasks=projects.flatMap(p=>(p.tasks||[]).filter(t=>t.assignedTo===va.id).map(t=>({...t,projectTitle:p.title})));
+                const done=vaTasks.filter(t=>t.status==='Complete').length;
+                const totalHours=Object.values(va.hoursLogged||{}).reduce((s,h)=>s+(+h||0),0);
+                return(
+                  <div key={va.id} style={{background:C.bg,borderRadius:'10px',padding:'14px',marginBottom:'10px',border:`1px solid ${C.border}`,borderLeft:'4px solid #9a6fa3'}}>
+                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',flexWrap:'wrap',gap:'8px'}}>
+                      <div>
+                        <div style={{fontWeight:700,fontSize:'14px',color:C.navy}}>{va.name}</div>
+                        <div style={{fontSize:'10px',color:C.muted,marginTop:'2px'}}>{va.role} · ${va.hourlyRate}/hr · Login: <strong>{va.username}</strong></div>
+                        <div style={{fontSize:'10px',color:C.muted,marginTop:'4px',display:'flex',gap:'14px',flexWrap:'wrap'}}>
+                          <span>📋 {vaTasks.length} tasks assigned ({done} complete)</span>
+                          <span>⏱ {totalHours} hrs logged · Est. pay: <strong style={{color:C.navy}}>{f0(totalHours*(va.hourlyRate||0))}</strong></span>
+                        </div>
+                      </div>
+                      <div style={{display:'flex',gap:'6px'}}>
+                        <button onClick={()=>{setVaForm(va);setShowVAForm(true);}} style={Btn('secondary',{padding:'5px 12px',fontSize:'11px'})}>Edit</button>
+                        <button onClick={()=>{setVaUsers(prev=>prev.filter(x=>x.id!==va.id));setCreds(c=>{const v={...(c.vas||{})};delete v[va.id];return{...c,vas:v};});}} style={Btn('danger',{padding:'5px 8px',fontSize:'11px'})}>Remove</button>
+                      </div>
+                    </div>
+                    {vaTasks.length>0&&(
+                      <div style={{marginTop:'10px',borderTop:`1px solid ${C.border}`,paddingTop:'10px'}}>
+                        {vaTasks.slice(0,3).map(t=>(
+                          <div key={t.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'4px 0',fontSize:'11px'}}>
+                            <span style={{color:C.text}}>{t.projectTitle} → {t.title}</span>
+                            <StatusBadge s={t.status}/>
+                          </div>
+                        ))}
+                        {vaTasks.length>3&&<div style={{fontSize:'10px',color:C.muted,marginTop:'4px'}}>+{vaTasks.length-3} more tasks</div>}
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            }
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+/* ── STAFF TASKS VIEW ── */
+export function TasksView({projects,setProjects,provId,provName,month,importantDetails,setImportantDetails,emailConfig,providerName}){
+  const now=new Date();
+  const curMonth=month||`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+  const [yr,mo]=curMonth.split('-').map(Number);
+  const ml=new Date(curMonth+'-02').toLocaleString('default',{month:'long',year:'numeric'});
+
+  const myTasks=projects.flatMap(p=>
+    (p.tasks||[]).filter(t=>t.assignedTo===provId||p.assignedTo?.includes(provId))
+    .map(t=>({...t,projectId:p.id,projectTitle:p.title}))
+  );
+  const open=myTasks.filter(t=>t.status!=='Complete');
+  const done=myTasks.filter(t=>t.status==='Complete');
+
+  const daysInMonth=new Date(yr,mo,0).getDate();
+  const tasksByWeek=[1,2,3,4,5].map(w=>({
+    w,
+    d1:(w-1)*7+1,
+    d2:Math.min(w*7,daysInMonth),
+    tasks:open.filter(t=>{
+      if(!t.dueDate)return w===1;
+      const [ty,tm,td]=t.dueDate.split('-').map(Number);
+      if(ty!==yr||tm!==mo)return w===5;
+      return Math.min(Math.ceil(td/7),5)===w;
+    })
+  }));
+
+  function updateTask(projId,taskId,updates){
+    setProjects(prev=>prev.map(x=>x.id===projId?{...x,tasks:(x.tasks||[]).map(t=>t.id===taskId?{...t,...updates}:t)}:x));
+  }
+
+  const TaskCard=({task})=>{
+    const[editingNote,setEditingNote]=useState(false);
+    const[noteDraft,setNoteDraft]=useState(task.notes||'');
+    return(
+      <div style={{padding:'12px 14px',borderRadius:'8px',marginBottom:'8px',
+        background:task.status==='Assistance Needed'?C.dangerBg:task.status==='Approval Needed'?'#f0eaf8':C.bg,
+        border:`1px solid ${task.status==='Assistance Needed'?C.danger+'33':task.status==='Approval Needed'?'#7a4fa355':C.border}`}}>
+        <div style={{display:'flex',alignItems:'center',gap:'10px',marginBottom:'8px'}}>
+          <input type="checkbox" onChange={()=>updateTask(task.projectId,task.id,{status:'Complete'})}/>
+          <div style={{flex:1}}>
+            <div style={{fontSize:'12px',fontWeight:600,color:C.text}}>{task.title}</div>
+            <div style={{fontSize:'10px',color:C.muted,marginTop:'2px'}}>📁 {task.projectTitle}{task.dueDate&&` · 📅 ${task.dueDate}`}</div>
+          </div>
+          <select value={task.status} onChange={e=>{
+              const newStatus=e.target.value;
+              updateTask(task.projectId,task.id,{status:newStatus});
+              if(newStatus==='Assistance Needed'||newStatus==='Approval Needed'){
+                sendTaskAlert({emailConfig,taskTitle:task.title,projectTitle:task.projectTitle,status:newStatus,providerName:providerName||'Staff'});
+              }
+            }} style={{...sel(),padding:'4px 8px',fontSize:'11px',width:'160px'}}>{STATUS_OPTS.map(o=><option key={o}>{o}</option>)}</select>
+        </div>
+        {/* NOTES DISPLAY */}
+        {task.notes&&!editingNote&&(
+          <div style={{background:'rgba(255,255,255,0.8)',borderRadius:'6px',padding:'8px 12px',marginBottom:'6px',border:`1px solid ${C.border}`}}>
+            <div style={{fontSize:'9px',fontWeight:700,textTransform:'uppercase',letterSpacing:'0.08em',color:C.accent,marginBottom:'4px'}}>📋 Notes</div>
+            <div style={{fontSize:'11px',color:C.text,lineHeight:1.6,whiteSpace:'pre-wrap'}}>{task.notes}</div>
+          </div>
+        )}
+        {/* NOTE EDIT AREA */}
+        {editingNote?(
+          <div style={{marginTop:'4px'}}>
+            <textarea value={noteDraft} onChange={e=>setNoteDraft(e.target.value)} rows={3}
+              placeholder="Add or update note…"
+              style={{...inp(),background:'#fff',fontSize:'11px',padding:'7px 10px',resize:'vertical',lineHeight:1.5,fontFamily:sans}}/>
+            <div style={{display:'flex',gap:'6px',marginTop:'6px'}}>
+              <button onClick={()=>{updateTask(task.projectId,task.id,{notes:noteDraft});setEditingNote(false);}} style={Btn('primary',{padding:'5px 14px',fontSize:'10px'})}>✓ Save</button>
+              <button onClick={()=>{setNoteDraft(task.notes||'');setEditingNote(false);}} style={Btn('secondary',{padding:'5px 10px',fontSize:'10px'})}>Cancel</button>
+            </div>
+          </div>
+        ):(
+          <button onClick={()=>{setNoteDraft(task.notes||'');setEditingNote(true);}}
+            style={{...Btn('secondary',{padding:'4px 12px',fontSize:'10px'}),marginTop:'4px'}}>
+            {task.notes?'✏️ Edit Note':'+ Add Note'}
+          </button>
+        )}
+      </div>
+    );
+  };
+
+  return(
+    <div>
+      <ImportantDetailsBlock personId={provId} personName={provName} importantDetails={importantDetails||{}} setImportantDetails={setImportantDetails||(()=>{})}/>
+      <div style={cardS()}>
+        <div style={lblS()}>My Tasks — {provName} · {ml}</div>
+        <div style={{fontSize:'10px',color:C.muted,marginBottom:'14px'}}>{open.length} open · {done.length} complete</div>
+        {myTasks.length===0
+          ?<div style={{textAlign:'center',padding:'32px',color:C.muted,fontSize:'13px'}}>No tasks assigned to you yet.</div>
+          :<>
+            {tasksByWeek.map(({w,d1,d2,tasks:wt})=>wt.length===0?null:(
+              <div key={w} style={{marginBottom:'18px'}}>
+                <div style={{display:'flex',alignItems:'center',gap:'8px',marginBottom:'8px'}}>
+                  <span style={{background:C.navy,color:'#fff',borderRadius:'999px',padding:'2px 12px',fontSize:'9px',fontWeight:700}}>Week {w}</span>
+                  <span style={{fontSize:'10px',color:C.muted}}>{mo}/{d1} – {mo}/{d2} · {wt.length} task{wt.length!==1?'s':''}</span>
+                </div>
+                {wt.map(task=><TaskCard key={task.id} task={task}/>)}
+              </div>
+            ))}
+            {done.length>0&&<>
+              <div style={{fontSize:'10px',fontWeight:700,textTransform:'uppercase',letterSpacing:'0.08em',color:C.muted,margin:'14px 0 8px'}}>Completed ✓</div>
+              {done.map(task=>(
+                <div key={task.id} style={{display:'flex',alignItems:'center',gap:'10px',padding:'8px 12px',borderRadius:'8px',marginBottom:'4px',background:C.successBg,border:`1px solid ${C.success}33`,opacity:0.7}}>
+                  <input type="checkbox" checked readOnly/>
+                  <div style={{flex:1}}><div style={{fontSize:'11px',color:C.muted,textDecoration:'line-through'}}>{task.title}</div><div style={{fontSize:'10px',color:C.muted}}>📁 {task.projectTitle}</div></div>
+                  <StatusBadge s="Complete"/>
+                </div>
+              ))}
+            </>}
+          </>
+        }
+      </div>
+    </div>
+  );
+}
+
+
+/* ── VA DAILY TIMESHEET ── */
+function VATimesheet({va,vaId,vaUsers,setVaUsers,month,ml,emailConfig}){
+  const[yr,mo]=month.split('-').map(Number);
+  const daysInMonth=new Date(yr,mo,0).getDate();
+  const[showLog,setShowLog]=useState(false);
+  const[submitting,setSubmitting]=useState(false);
+  const[submitted,setSubmitted]=useState(false);
+
+  // Get timesheet for this month
+  const timesheet=va?.timesheet?.[month]||{};
+
+  function setHours(day,val){
+    setVaUsers(prev=>prev.map(v=>v.id===vaId?{...v,timesheet:{...(v.timesheet||{}),[month]:{...(v.timesheet?.[month]||{}),[day]:val===''?undefined:+val}}}:v));
+  }
+
+  // Build weeks
+  const weeks=[];
+  let week=[];
+  for(let d=1;d<=daysInMonth;d++){
+    const date=new Date(yr,mo-1,d);
+    week.push({day:d,dow:date.toLocaleDateString('en-US',{weekday:'short'}),hours:timesheet[d]||0});
+    if(date.getDay()===6||d===daysInMonth){weeks.push([...week]);week=[];}
+  }
+
+  const totalHours=Object.values(timesheet).reduce((s,h)=>s+(+h||0),0);
+  const weekTotals=weeks.map(w=>w.reduce((s,d)=>s+(+d.hours||0),0));
+
+  async function submitForApproval(){
+    setSubmitting(true);
+    const details=weeks.map((w,i)=>'Week '+(i+1)+': '+weekTotals[i]+' hrs\n'+w.filter(d=>d.hours>0).map(d=>'  '+d.dow+' '+mo+'/'+d.day+': '+d.hours+' hrs').join('\n')).join('\n\n');
+    const sent=await sendHoursApproval({emailConfig,vaName:va.name,weekLabel:ml,hours:totalHours,details});
+    setSubmitting(false);
+    setSubmitted(true);
+    setTimeout(()=>setSubmitted(false),4000);
+  }
+
+  return(
+    <div style={{...cardS(),border:`2px solid ${C.accent}33`}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'10px',flexWrap:'wrap',gap:'8px'}}>
+        <div>
+          <div style={{fontWeight:700,fontSize:'13px',color:C.navy}}>⏱ Daily Timesheet — {ml}</div>
+          <div style={{fontSize:'10px',color:C.muted,marginTop:'2px'}}>Log hours each day. Submit weekly for admin approval.</div>
+        </div>
+        <div style={{display:'flex',gap:'8px',alignItems:'center'}}>
+          <div style={{textAlign:'right'}}>
+            <div style={{fontSize:'9px',fontWeight:700,textTransform:'uppercase',letterSpacing:'0.08em',color:C.accent}}>Total Hours</div>
+            <div style={{fontSize:'22px',fontWeight:300,fontFamily:serif,color:C.navy,lineHeight:1}}>{totalHours}</div>
+          </div>
+          <button onClick={()=>setShowLog(!showLog)} style={{...Btn('secondary',{padding:'7px 14px',fontSize:'11px'})}}>
+            {showLog?'▲ Hide':'▼ Log Hours'}
+          </button>
+        </div>
+      </div>
+
+      {showLog&&(
+        <div>
+          {weeks.map((week,wi)=>(
+            <div key={wi} style={{marginBottom:'14px'}}>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'8px'}}>
+                <span style={{fontSize:'10px',fontWeight:700,color:C.navy,background:C.accentBg,padding:'2px 10px',borderRadius:'999px'}}>Week {wi+1}</span>
+                <span style={{fontSize:'10px',color:C.muted,fontWeight:700}}>Total: <strong style={{color:C.navy}}>{weekTotals[wi]} hrs</strong></span>
+              </div>
+              <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(70px,1fr))',gap:'6px'}}>
+                {week.map(({day,dow,hours})=>(
+                  <div key={day} style={{background:hours>0?C.accentBg:C.bg,borderRadius:'8px',padding:'8px',border:`1px solid ${hours>0?C.accent+'44':C.border}`,textAlign:'center'}}>
+                    <div style={{fontSize:'9px',fontWeight:700,color:C.muted,marginBottom:'2px'}}>{dow}</div>
+                    <div style={{fontSize:'10px',color:C.muted,marginBottom:'5px'}}>{mo}/{day}</div>
+                    <input type="number" value={hours||''} min="0" max="24" step="0.5" placeholder="0"
+                      onChange={e=>setHours(day,e.target.value)}
+                      style={{width:'100%',textAlign:'center',background:'#fff',border:`1px solid ${C.border}`,borderRadius:'5px',padding:'4px 2px',fontFamily:sans,fontSize:'12px',fontWeight:700,color:C.navy,outline:'none'}}/>
+                    <div style={{fontSize:'8px',color:C.muted,marginTop:'2px'}}>hrs</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+
+          <div style={{borderTop:`1px solid ${C.border}`,paddingTop:'12px',display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:'10px'}}>
+            <div style={{fontSize:'10px',color:C.muted}}>Click "Submit for Approval" to email your hours to admin for review.</div>
+            <button onClick={submitForApproval} disabled={submitting||totalHours===0}
+              style={{...Btn('primary',{padding:'9px 20px'}),opacity:totalHours===0?0.5:1}}>
+              {submitting?'Sending…':submitted?'✓ Sent!':'📧 Submit for Approval'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {!showLog&&totalHours>0&&(
+        <div style={{display:'flex',gap:'10px',flexWrap:'wrap'}}>
+          {weekTotals.map((wt,i)=>wt>0&&(
+            <div key={i} style={{background:C.bg,borderRadius:'7px',padding:'6px 12px',border:`1px solid ${C.border}`}}>
+              <span style={{fontSize:'10px',color:C.muted}}>Wk {i+1}: </span>
+              <span style={{fontSize:'11px',fontWeight:700,color:C.navy}}>{wt} hrs</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── VA VIEW ── */
+export function VAView({projects,setProjects,auth,vaUsers,setVaUsers,month,importantDetails,setImportantDetails,emailConfig}){
+  const va=vaUsers.find(v=>v.id===auth.vaId)||{name:auth.vaName,hourlyRate:0,hoursLogged:{}};
+  const now=new Date();
+  const curMonth=month||`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+  const [yr,mo]=curMonth.split('-').map(Number);
+  const ml=new Date(curMonth+'-02').toLocaleString('default',{month:'long',year:'numeric'});
+
+  const myTasks=projects.flatMap(p=>
+    (p.tasks||[]).filter(t=>t.assignedTo===auth.vaId)
+    .map(t=>({...t,projectId:p.id,projectTitle:p.title}))
+  );
+  const open=myTasks.filter(t=>t.status!=='Complete');
+  const done=myTasks.filter(t=>t.status==='Complete');
+  const[hoursInput,setHoursInput]=useState({});
+  const totalHours=Object.values(va.hoursLogged||{}).reduce((s,h)=>s+(+h||0),0);
+
+  const daysInMonth=new Date(yr,mo,0).getDate();
+  const tasksByWeek=[1,2,3,4,5].map(w=>({
+    w,
+    d1:(w-1)*7+1,
+    d2:Math.min(w*7,daysInMonth),
+    tasks:open.filter(t=>{
+      if(!t.dueDate)return w===1;
+      const [ty,tm,td]=t.dueDate.split('-').map(Number);
+      if(ty!==yr||tm!==mo)return w===5;
+      return Math.min(Math.ceil(td/7),5)===w;
+    })
+  }));
+
+  function updateTask(projId,taskId,updates){
+    setProjects(prev=>prev.map(x=>x.id===projId?{...x,tasks:(x.tasks||[]).map(t=>t.id===taskId?{...t,...updates}:t)}:x));
+  }
+
+  return(
+    <div>
+      <ImportantDetailsBlock personId={auth.vaId} personName={va.name} importantDetails={importantDetails||{}} setImportantDetails={setImportantDetails||(()=>{})}/>
+
+      <div style={cardS()}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',flexWrap:'wrap',gap:'10px'}}>
+          <div>
+            <div style={{fontFamily:serif,fontSize:'22px',fontWeight:300,color:C.navy}}>{va.name}</div>
+            <div style={{fontSize:'11px',color:C.muted,marginTop:'2px'}}>{va.role||'Virtual Assistant'} · ${va.hourlyRate||0}/hr</div>
+          </div>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'10px',textAlign:'center'}}>
+            {[['Open Tasks',open.length],['Completed',done.length],['Hours Logged',totalHours]].map(([l,v])=>(
+              <div key={l} style={{background:C.bg,borderRadius:'8px',padding:'10px 14px'}}>
+                <div style={{fontSize:'9px',fontWeight:700,textTransform:'uppercase',letterSpacing:'0.08em',color:C.accent,marginBottom:'2px'}}>{l}</div>
+                <div style={{fontSize:'20px',fontWeight:300,fontFamily:serif,color:C.navy}}>{v}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* VA DAILY TIMESHEET */}
+      <VATimesheet va={va} vaId={auth.vaId} vaUsers={vaUsers} setVaUsers={setVaUsers} month={curMonth} ml={ml} emailConfig={emailConfig}/>
+
+      <div style={cardS()}>
+        <div style={lblS()}>My Tasks — {ml}</div>
+        <div style={{fontSize:'10px',color:C.muted,marginBottom:'14px'}}>Tasks grouped by week</div>
+        {myTasks.length===0
+          ?<div style={{textAlign:'center',padding:'32px',color:C.muted,fontSize:'13px'}}>No tasks assigned yet. Check back soon!</div>
+          :<>
+            {tasksByWeek.map(({w,d1,d2,tasks:wt})=>wt.length===0?null:(
+              <div key={w} style={{marginBottom:'18px'}}>
+                <div style={{display:'flex',alignItems:'center',gap:'8px',marginBottom:'8px'}}>
+                  <span style={{background:C.navy,color:'#fff',borderRadius:'999px',padding:'2px 12px',fontSize:'9px',fontWeight:700}}>Week {w}</span>
+                  <span style={{fontSize:'10px',color:C.muted}}>{mo}/{d1} – {mo}/{d2} · {wt.length} task{wt.length!==1?'s':''}</span>
+                </div>
+                {wt.map(task=>(
+                  <div key={task.id} style={{padding:'12px 14px',borderRadius:'10px',marginBottom:'8px',
+                    background:task.status==='Assistance Needed'?C.dangerBg:task.status==='Approval Needed'?'#f0eaf8':C.bg,
+                    border:`1px solid ${task.status==='Assistance Needed'?C.danger+'33':task.status==='Approval Needed'?'#7a4fa355':C.border}`}}>
+                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:'8px',flexWrap:'wrap',gap:'6px'}}>
+                      <div>
+                        <div style={{fontSize:'13px',fontWeight:700,color:C.navy}}>{task.title}</div>
+                        <div style={{fontSize:'10px',color:C.muted,marginTop:'2px'}}>📁 {task.projectTitle}{task.dueDate&&` · Due ${task.dueDate}`}</div>
+                      </div>
+                      <select value={task.status} onChange={e=>updateTask(task.projectId,task.id,{status:e.target.value})}
+                        style={{...sel(),padding:'5px 10px',fontSize:'11px',width:'165px'}}>
+                        {STATUS_OPTS.map(o=><option key={o}>{o}</option>)}
+                      </select>
+                    </div>
+                    {/* NOTES DISPLAY */}
+                    {task.notes&&(
+                      <div style={{background:'rgba(255,255,255,0.8)',borderRadius:'6px',padding:'8px 12px',marginBottom:'8px',border:`1px solid ${C.border}`}}>
+                        <div style={{fontSize:'9px',fontWeight:700,textTransform:'uppercase',letterSpacing:'0.08em',color:C.accent,marginBottom:'4px'}}>📋 Notes</div>
+                        <div style={{fontSize:'11px',color:C.text,lineHeight:1.6,whiteSpace:'pre-wrap'}}>{task.notes}</div>
+                      </div>
+                    )}
+                    <div style={{marginBottom:'8px'}}>
+                      <textarea value={task.notes||''} onChange={e=>updateTask(task.projectId,task.id,{notes:e.target.value})}
+                        placeholder="Add a note or update…" rows={2}
+                        style={{...inp(),background:'rgba(255,255,255,0.7)',fontSize:'11px',padding:'7px 10px',resize:'vertical',lineHeight:1.5,fontFamily:sans}}/>
+                    </div>
+                    <div style={{display:'flex',gap:'10px',alignItems:'center'}}>
+                      <label style={{...lblS(),marginBottom:0,whiteSpace:'nowrap'}}>Log Hours:</label>
+                      <input type="number" placeholder="0" value={hoursInput[task.id]||''} onChange={e=>setHoursInput(p=>({...p,[task.id]:e.target.value}))} style={{...inp(),width:'80px',padding:'5px 8px'}}/>
+                      <button onClick={()=>{
+                        const hrs=+hoursInput[task.id]||0;
+                        if(!hrs)return;
+                        updateTask(task.projectId,task.id,{hoursLogged:(+task.hoursLogged||0)+hrs,lastUpdated:new Date().toISOString().split('T')[0]});
+                        setHoursInput(p=>({...p,[task.id]:''}));
+                      }} style={Btn('accent',{padding:'5px 14px',fontSize:'11px'})}>+ Add</button>
+                      {task.hoursLogged>0&&<span style={{fontSize:'10px',color:C.muted}}>Total: <strong>{task.hoursLogged} hrs</strong></span>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ))}
+            {done.length>0&&<>
+              <div style={{fontSize:'10px',fontWeight:700,textTransform:'uppercase',letterSpacing:'0.08em',color:C.muted,margin:'14px 0 8px'}}>Completed ✓</div>
+              {done.map(task=>(
+                <div key={task.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 14px',borderRadius:'8px',marginBottom:'4px',background:C.successBg,border:`1px solid ${C.success}33`}}>
+                  <div>
+                    <div style={{fontSize:'11px',color:C.muted,textDecoration:'line-through',fontWeight:600}}>{task.title}</div>
+                    <div style={{fontSize:'10px',color:C.muted}}>📁 {task.projectTitle}{task.hoursLogged>0?` · ${task.hoursLogged} hrs`:''}</div>
+                  </div>
+                  <StatusBadge s="Complete"/>
+                </div>
+              ))}
+            </>}
+          </>
+        }
+      </div>
+    </div>
+  );
+}
+
+
+
+
+
+/* ─── VA FORM INLINE (used in Providers tab) ────────────── */
+function VAFormInline({vaUsers,setVaUsers,creds,setCreds}){
+  const[f,setF]=useState({id:uid(),name:'',role:'Virtual Assistant',hourlyRate:0,username:'',password:'VA2025'});
+  function save(){
+    if(!f.name||!f.username)return;
+    setVaUsers(p=>[...p,f]);
+    setCreds(c=>({...c,_showVAForm:false,vas:{...(c.vas||{}),[f.id]:{id:f.id,name:f.name,username:f.username,password:f.password}}}));
+  }
+  return(
+    <div style={{background:C.bg,borderRadius:'10px',padding:'14px',marginBottom:'12px',border:`1px solid ${C.border}`}}>
+      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(140px,1fr))',gap:'10px',marginBottom:'10px'}}>
+        <div><label style={lblS()}>Full Name *</label><input value={f.name} onChange={e=>setF(p=>({...p,name:e.target.value}))} placeholder="VA name" style={inp()}/></div>
+        <div><label style={lblS()}>Role</label><input value={f.role} onChange={e=>setF(p=>({...p,role:e.target.value}))} placeholder="Virtual Assistant" style={inp()}/></div>
+        <div><label style={lblS()}>Hourly Rate ($)</label><input type="number" value={f.hourlyRate} onChange={e=>setF(p=>({...p,hourlyRate:+e.target.value}))} style={inp()}/></div>
+        <div><label style={lblS()}>Username *</label><input value={f.username} onChange={e=>setF(p=>({...p,username:e.target.value}))} style={inp()}/></div>
+        <div><label style={lblS()}>Password</label><input value={f.password} onChange={e=>setF(p=>({...p,password:e.target.value}))} style={inp()}/></div>
+      </div>
+      <button style={Btn('primary')} onClick={save}>✓ Add VA</button>
+    </div>
+  );
+}
+
+/* ─── PROVIDER DAILY/WEEKLY TASK VIEW ───────────────────── */
+function ProviderTaskView({projects,setProjects,provId,provName,month}){
+  const[viewMode,setViewMode]=useState('day');
+  const now=new Date();
+  const today=now.toISOString().split('T')[0];
+  const[yr,mo]=month.split('-').map(Number);
+
+  const allMyTasks=projects.flatMap(p=>
+    (p.tasks||[]).filter(t=>t.assignedTo===provId||p.assignedTo?.includes(provId))
+    .map(t=>({...t,projectId:p.id,projectTitle:p.title}))
+  ).filter(t=>t.status!=='Complete');
+
+  // Daily: tasks due today or no due date
+  const dailyTasks=allMyTasks.filter(t=>!t.dueDate||t.dueDate===today);
+
+  // Weekly: group by day of week (Mon-Sun this week)
+  const weekStart=new Date(now);
+  weekStart.setDate(now.getDate()-now.getDay()+1);
+  const weekDays=Array.from({length:7},(_,i)=>{
+    const d=new Date(weekStart);d.setDate(weekStart.getDate()+i);
+    return{date:d.toISOString().split('T')[0],label:d.toLocaleDateString('en-US',{weekday:'short',month:'numeric',day:'numeric'})};
+  });
+
+  function updateTask(projId,taskId,updates){
+    setProjects(prev=>prev.map(x=>x.id===projId?{...x,tasks:(x.tasks||[]).map(t=>t.id===taskId?{...t,...updates}:t)}:x));
+  }
+
+  const TaskPill=({task})=>(
+    <div style={{display:'flex',alignItems:'center',gap:'8px',padding:'8px 10px',borderRadius:'8px',marginBottom:'5px',
+      background:task.status==='Assistance Needed'?C.dangerBg:task.status==='Approval Needed'?'#f0eaf8':C.bg,
+      border:`1px solid ${task.status==='Assistance Needed'?C.danger+'44':task.status==='Approval Needed'?'#7a4fa355':C.border}`}}>
+      <input type="checkbox" onChange={()=>updateTask(task.projectId,task.id,{status:'Complete'})} style={{flexShrink:0}}/>
+      <div style={{flex:1,minWidth:0}}>
+        <div style={{fontSize:'12px',fontWeight:600,color:C.text,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{task.title}</div>
+        <div style={{fontSize:'9px',color:C.muted}}>📁 {task.projectTitle}</div>
+        {task.notes&&<div style={{fontSize:'9px',color:C.accent,marginTop:'1px'}}>📋 {task.notes}</div>}
+      </div>
+      <select value={task.status} onChange={e=>updateTask(task.projectId,task.id,{status:e.target.value})}
+        style={{...sel(),padding:'3px 6px',fontSize:'9px',width:'120px',flexShrink:0}}>
+        {['Not Started','In Progress','Assistance Needed','Approval Needed','Complete'].map(o=><option key={o}>{o}</option>)}
+      </select>
+    </div>
+  );
+
+  return(
+    <div style={cardS()}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'12px',flexWrap:'wrap',gap:'8px'}}>
+        <div style={lblS()}>My Tasks</div>
+        <div style={{display:'flex',gap:'4px',background:C.bg,borderRadius:'8px',padding:'3px'}}>
+          {[['day','📅 Today'],['week','📆 This Week']].map(([m,l])=>(
+            <button key={m} onClick={()=>setViewMode(m)} style={{padding:'5px 14px',borderRadius:'6px',border:'none',cursor:'pointer',background:viewMode===m?C.navy:'transparent',color:viewMode===m?'#fff':C.muted,fontFamily:sans,fontSize:'11px',fontWeight:600}}>{l}</button>
+          ))}
+        </div>
+      </div>
+
+      {viewMode==='day'&&(
+        <>
+          <div style={{fontSize:'10px',color:C.muted,marginBottom:'10px'}}>{now.toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'})} · {dailyTasks.length} task{dailyTasks.length!==1?'s':''}</div>
+          {dailyTasks.length===0
+            ?<div style={{color:C.success,fontSize:'12px',fontWeight:600,padding:'12px 0'}}>✓ No tasks due today!</div>
+            :dailyTasks.map(t=><TaskPill key={t.id} task={t}/>)
+          }
+        </>
+      )}
+
+      {viewMode==='week'&&(
+        <div>
+          {weekDays.map(({date,label})=>{
+            const dayTasks=allMyTasks.filter(t=>t.dueDate===date||(date===today&&!t.dueDate));
+            return(
+              <div key={date} style={{marginBottom:'12px'}}>
+                <div style={{display:'flex',alignItems:'center',gap:'8px',marginBottom:'5px'}}>
+                  <span style={{fontSize:'10px',fontWeight:700,color:date===today?C.accent:C.navy,background:date===today?C.accentBg:C.bg,padding:'2px 10px',borderRadius:'999px',border:`1px solid ${date===today?C.accent:C.border}`}}>{label}{date===today?' · Today':''}</span>
+                  <span style={{fontSize:'9px',color:C.muted}}>{dayTasks.length} task{dayTasks.length!==1?'s':''}</span>
+                </div>
+                {dayTasks.length===0
+                  ?<div style={{fontSize:'10px',color:C.muted,padding:'4px 8px'}}>No tasks</div>
+                  :dayTasks.map(t=><TaskPill key={t.id} task={t}/>)
+                }
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ─── KPI VIEW ──────────────────────────────────────────── */
+function KPIView({providers,kpiData,setKpiData,month}){
+  const[selProv,setSelProv]=useState(providers[0]?.id||'');
+  const[showForm,setShowForm]=useState(false);
+  const[noteInput,setNoteInput]=useState('');
+  const[notingKpi,setNotingKpi]=useState(null);
+  const blankKPI=()=>({id:uid(),metric:'',value:'',unit:'',date:month,notes:[],createdAt:new Date().toISOString()});
+  const[form,setForm]=useState(blankKPI());
+
+  const prov=providers.find(p=>p.id===selProv)||providers[0];
+  const provKPIs=(kpiData[selProv]||[]);
+
+  const METRICS=['Revenue','Services Completed','New Clients','Returning Clients','Avg Ticket Size','Units Sold','Memberships Sold','Client Satisfaction','Retail Sales','Injectable Revenue','Facial Revenue'];
+
+  function saveKPI(){
+    if(!form.metric||!form.value)return;
+    const k2={...form,id:uid(),createdAt:new Date().toISOString()};
+    setKpiData(p=>({...p,[selProv]:[...(p[selProv]||[]),k2]}));
+    setForm(blankKPI());setShowForm(false);
+  }
+  function delKPI(id){setKpiData(p=>({...p,[selProv]:(p[selProv]||[]).filter(k=>k.id!==id)}));}
+  function addNote(kpiId,text,author='Admin'){
+    if(!text.trim())return;
+    const note={id:uid(),text,author,ts:new Date().toLocaleString('en-US',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})};
+    setKpiData(p=>({...p,[selProv]:(p[selProv]||[]).map(k=>k.id===kpiId?{...k,notes:[...(k.notes||[]),note]}:k)}));
+    setNoteInput('');setNotingKpi(null);
+  }
+
+  const ml=new Date(month+'-02').toLocaleString('default',{month:'long',year:'numeric'});
+
+  return(
+    <div>
+      {/* PROVIDER TABS */}
+      <div style={{display:'flex',gap:'7px',marginBottom:'14px',flexWrap:'wrap'}}>
+        {providers.map(p=>(
+          <button key={p.id} onClick={()=>setSelProv(p.id)}
+            style={{padding:'7px 18px',borderRadius:'20px',border:`2px solid ${selProv===p.id?p.color:C.border}`,background:selProv===p.id?p.color:C.card,color:selProv===p.id?'#fff':C.muted,cursor:'pointer',fontFamily:sans,fontSize:'12px',fontWeight:600,transition:'all 0.15s'}}>
+            {p.name}
+          </button>
+        ))}
+      </div>
+
+      <div style={cardS()}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'12px',flexWrap:'wrap',gap:'10px'}}>
+          <div>
+            <div style={lblS()}>KPI Tracker — {prov?.name} · {ml}</div>
+            <div style={{fontSize:'10px',color:C.muted,marginTop:'2px'}}>Log key performance indicators for each provider. Both admin and provider can add notes with timestamps.</div>
+          </div>
+          <button style={Btn('primary')} onClick={()=>setShowForm(!showForm)}>{showForm?'✕ Cancel':'+ Add KPI'}</button>
+        </div>
+
+        {/* ADD FORM */}
+        {showForm&&(
+          <div style={{background:C.bg,borderRadius:'10px',padding:'14px',marginBottom:'14px',border:`1px solid ${C.border}`}}>
+            <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(140px,1fr))',gap:'10px',marginBottom:'10px'}}>
+              <div>
+                <label style={lblS()}>Metric *</label>
+                <select value={form.metric} onChange={e=>setForm(p=>({...p,metric:e.target.value}))} style={sel()}>
+                  <option value="">Select metric…</option>
+                  {METRICS.map(m=><option key={m}>{m}</option>)}
+                  <option value="__custom__">Custom…</option>
+                </select>
+                {form.metric==='__custom__'&&<input value={form.customMetric||''} onChange={e=>setForm(p=>({...p,customMetric:e.target.value,metric:e.target.value}))} placeholder="Custom metric name" style={{...inp(),marginTop:'6px'}}/>}
+              </div>
+              <div><label style={lblS()}>Value *</label><input value={form.value} onChange={e=>setForm(p=>({...p,value:e.target.value}))} placeholder="e.g. 12,500" style={inp()}/></div>
+              <div><label style={lblS()}>Unit</label><input value={form.unit} onChange={e=>setForm(p=>({...p,unit:e.target.value}))} placeholder="$, %, clients, units…" style={inp()}/></div>
+              <div><label style={lblS()}>Period</label><input type="month" value={form.date} onChange={e=>setForm(p=>({...p,date:e.target.value}))} style={inp()}/></div>
+            </div>
+            <button style={Btn('primary')} onClick={saveKPI}>✓ Save KPI</button>
+          </div>
+        )}
+
+        {/* KPI LIST */}
+        {provKPIs.length===0
+          ?<div style={{textAlign:'center',padding:'32px',color:C.muted,fontSize:'13px'}}>No KPIs logged for {prov?.name} yet.</div>
+          :<div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(280px,1fr))',gap:'12px'}}>
+            {provKPIs.sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt)).map(kpi=>(
+              <div key={kpi.id} style={{background:C.bg,borderRadius:'10px',padding:'14px',border:`1px solid ${C.border}`,borderLeft:`4px solid ${prov?.color||C.accent}`}}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:'6px'}}>
+                  <div>
+                    <div style={{fontSize:'9px',fontWeight:700,textTransform:'uppercase',letterSpacing:'0.08em',color:C.accent}}>{kpi.metric}</div>
+                    <div style={{fontSize:'26px',fontWeight:300,fontFamily:serif,color:C.navy,lineHeight:1.1}}>{kpi.value}<span style={{fontSize:'13px',color:C.muted,marginLeft:'4px'}}>{kpi.unit}</span></div>
+                    <div style={{fontSize:'10px',color:C.muted,marginTop:'2px'}}>{new Date(kpi.date+'-02').toLocaleString('default',{month:'long',year:'numeric'})}</div>
+                  </div>
+                  <button onClick={()=>delKPI(kpi.id)} style={{background:'none',border:'none',color:C.muted,cursor:'pointer',fontSize:'14px'}}>✕</button>
+                </div>
+
+                {/* NOTES THREAD */}
+                {(kpi.notes||[]).length>0&&(
+                  <div style={{borderTop:`1px solid ${C.border}`,paddingTop:'8px',marginTop:'8px'}}>
+                    {kpi.notes.map(n=>(
+                      <div key={n.id} style={{padding:'5px 8px',borderRadius:'6px',marginBottom:'4px',background:n.author==='Admin'?C.accentBg:'#fff',borderLeft:`2px solid ${n.author==='Admin'?C.accent:C.success}`}}>
+                        <div style={{fontSize:'10px',color:C.text}}>{n.text}</div>
+                        <div style={{fontSize:'9px',color:C.muted,marginTop:'2px'}}>{n.author} · {n.ts}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* ADD NOTE */}
+                {notingKpi===kpi.id?(
+                  <div style={{marginTop:'8px',display:'flex',gap:'6px'}}>
+                    <input value={noteInput} onChange={e=>setNoteInput(e.target.value)} placeholder="Add a note…"
+                      onKeyDown={e=>e.key==='Enter'&&addNote(kpi.id,noteInput)}
+                      style={{...inp({flex:1,padding:'5px 8px',fontSize:'11px',background:'#fff'})}}/>
+                    <button onClick={()=>addNote(kpi.id,noteInput)} style={Btn('primary',{padding:'5px 12px',fontSize:'10px'})}>Add</button>
+                    <button onClick={()=>setNotingKpi(null)} style={Btn('secondary',{padding:'5px 8px',fontSize:'10px'})}>✕</button>
+                  </div>
+                ):(
+                  <button onClick={()=>{setNotingKpi(kpi.id);setNoteInput('');}} style={Btn('secondary',{padding:'4px 10px',fontSize:'10px',marginTop:'8px'})}>+ Note</button>
+                )}
+              </div>
+            ))}
+          </div>
+        }
+      </div>
+    </div>
+  );
+}
+
+/* ─── PROVIDER KPI VIEW (staff side) ────────────────────── */
+function ProviderKPIView({provId,provName,kpiData,setKpiData}){
+  const[noteInput,setNoteInput]=useState('');
+  const[notingKpi,setNotingKpi]=useState(null);
+  const provKPIs=(kpiData[provId]||[]);
+
+  function addNote(kpiId,text){
+    if(!text.trim())return;
+    const note={id:uid(),text,author:provName,ts:new Date().toLocaleString('en-US',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})};
+    setKpiData(p=>({...p,[provId]:(p[provId]||[]).map(k=>k.id===kpiId?{...k,notes:[...(k.notes||[]),note]}:k)}));
+    setNoteInput('');setNotingKpi(null);
+  }
+
+  return(
+    <div style={cardS()}>
+      <div style={lblS()}>My KPIs</div>
+      <div style={{fontSize:'10px',color:C.muted,marginBottom:'14px'}}>Key performance indicators added by your manager. You can add notes to any KPI.</div>
+      {provKPIs.length===0
+        ?<div style={{textAlign:'center',padding:'24px',color:C.muted,fontSize:'13px'}}>No KPIs logged yet.</div>
+        :<div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(260px,1fr))',gap:'12px'}}>
+          {provKPIs.sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt)).map(kpi=>(
+            <div key={kpi.id} style={{background:C.bg,borderRadius:'10px',padding:'14px',border:`1px solid ${C.border}`}}>
+              <div style={{fontSize:'9px',fontWeight:700,textTransform:'uppercase',letterSpacing:'0.08em',color:C.accent,marginBottom:'2px'}}>{kpi.metric}</div>
+              <div style={{fontSize:'26px',fontWeight:300,fontFamily:serif,color:C.navy,lineHeight:1.1}}>{kpi.value}<span style={{fontSize:'13px',color:C.muted,marginLeft:'4px'}}>{kpi.unit}</span></div>
+              <div style={{fontSize:'10px',color:C.muted,marginTop:'2px',marginBottom:'8px'}}>{new Date(kpi.date+'-02').toLocaleString('default',{month:'long',year:'numeric'})}</div>
+              {(kpi.notes||[]).length>0&&(
+                <div style={{borderTop:`1px solid ${C.border}`,paddingTop:'8px',marginBottom:'8px'}}>
+                  {kpi.notes.map(n=>(
+                    <div key={n.id} style={{padding:'5px 8px',borderRadius:'6px',marginBottom:'4px',background:n.author==='Admin'?C.accentBg:'#fff',borderLeft:`2px solid ${n.author==='Admin'?C.accent:C.success}`}}>
+                      <div style={{fontSize:'10px',color:C.text}}>{n.text}</div>
+                      <div style={{fontSize:'9px',color:C.muted,marginTop:'2px'}}>{n.author} · {n.ts}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {notingKpi===kpi.id?(
+                <div style={{display:'flex',gap:'6px'}}>
+                  <input value={noteInput} onChange={e=>setNoteInput(e.target.value)} placeholder="Add your note…"
+                    onKeyDown={e=>e.key==='Enter'&&addNote(kpi.id,noteInput)}
+                    style={{...inp({flex:1,padding:'5px 8px',fontSize:'11px',background:'#fff'})}}/>
+                  <button onClick={()=>addNote(kpi.id,noteInput)} style={Btn('primary',{padding:'5px 10px',fontSize:'10px'})}>Add</button>
+                  <button onClick={()=>setNotingKpi(null)} style={Btn('secondary',{padding:'5px 8px',fontSize:'10px'})}>✕</button>
+                </div>
+              ):(
+                <button onClick={()=>{setNotingKpi(kpi.id);setNoteInput('');}} style={Btn('secondary',{padding:'4px 10px',fontSize:'10px'})}>+ Add Note</button>
+              )}
+            </div>
+          ))}
+        </div>
+      }
+    </div>
+  );
+}
+
+
 export default function App(){
   const now=new Date();
   const[month,setMonth]=useState(`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`);
@@ -933,9 +2343,10 @@ export default function App(){
   const[expenses,setExpenses]=useState([]);
   const[importantDetails,setImportantDetails]=useState({});
   const[clients,setClients]=useState([]);
+  const[kpiData,setKpiData]=useState({});
   const[emailConfig,setEmailConfig]=useState({serviceId:'',templateId:'',publicKey:'',adminEmail:''});
   const[showQuickLog,setShowQuickLog]=useState(false);
-  const[quickEntry,setQuickEntry]=useState({client:'',serviceId:'c1',retailPrice:'',discount:'0',tip:'0'});
+  const[quickEntry,setQuickEntry]=useState({date:new Date().toISOString().split('T')[0],time:'',client:'',serviceId:'c1',retailPrice:'',discount:'0',tip:'0'});
   const[projects,setProjects]=useState([]);
   const[vaUsers,setVaUsers]=useState([]);
   const[payroll,setPayroll]=useState({});
@@ -965,6 +2376,7 @@ export default function App(){
         const ex=await dbGet('lh4:expenses');if(ex)setExpenses(JSON.parse(ex));
         const id2=await dbGet('lh4:details');if(id2)setImportantDetails(JSON.parse(id2));
         const cl=await dbGet('lh4:clients');if(cl)setClients(JSON.parse(cl));
+        const kd=await dbGet('lh4:kpi');if(kd)setKpiData(JSON.parse(kd));
         const ec=await dbGet('lh4:email');if(ec){const parsed=JSON.parse(ec);setEmailConfig(parsed);if(parsed.publicKey)initEmail(parsed.publicKey);}
         const pj=await dbGet('lh4:projects');if(pj)setProjects(JSON.parse(pj));
         const va=await dbGet('lh4:vausers');if(va)setVaUsers(JSON.parse(va));
@@ -991,6 +2403,7 @@ export default function App(){
   useEffect(()=>{if(ready)dbSet('lh4:expenses',JSON.stringify(expenses));},[expenses,ready]);
   useEffect(()=>{if(ready)dbSet('lh4:details',JSON.stringify(importantDetails));},[importantDetails,ready]);
   useEffect(()=>{if(ready)dbSet('lh4:clients',JSON.stringify(clients));},[clients,ready]);
+  useEffect(()=>{if(ready)dbSet('lh4:kpi',JSON.stringify(kpiData));},[kpiData,ready]);
   useEffect(()=>{if(ready)dbSet('lh4:email',JSON.stringify(emailConfig));},[emailConfig,ready]);
   useEffect(()=>{if(ready)dbSet('lh4:projects',JSON.stringify(projects));},[projects,ready]);
   useEffect(()=>{if(ready)dbSet('lh4:vausers',JSON.stringify(vaUsers));},[vaUsers,ready]);
@@ -1113,8 +2526,8 @@ export default function App(){
   }
   function saveSvc(){if(!newSvc.name)return;setCatalog(p=>[...p,{...newSvc,id:uid()}]);setNewSvc(blankSv());setSvcOpen(false);}
 
-  const navItems=isAdmin?['combined','dashboard','log','commission','catalog','providers','expenses','breakeven','analytics','projects','calendar','clients']:auth?.role==='va'?['projects']:['dashboard','log','tasks'];
-  const navLabels={'combined':'👥 All Providers','dashboard':'Dashboard','log':'Log','commission':'Commission','catalog':'Catalog','providers':'Providers','expenses':'💰 Expenses','breakeven':'📈 Breakeven','analytics':'📊 Analytics','projects':'📋 Projects','tasks':'📋 My Tasks','calendar':'📅 Calendar','clients':'👤 Clients'};
+  const navItems=isAdmin?['combined','dashboard','log','commission','catalog','providers','expenses','breakeven','analytics','projects','kpi']:auth?.role==='va'?['projects']:['dashboard','log','tasks'];
+  const navLabels={'combined':'👥 All Providers','dashboard':'Dashboard','log':'Log','commission':'Commission','catalog':'Catalog','providers':'Providers','expenses':'💰 Expenses','breakeven':'📈 Breakeven','analytics':'📊 Analytics','projects':'📋 Projects','tasks':'📋 My Tasks','kpi':'🎯 KPIs'};
 
   return(
     <div style={{background:C.bg,minHeight:'100vh',fontFamily:sans,color:C.text}}>
@@ -1147,6 +2560,10 @@ export default function App(){
               <button onClick={()=>setShowQuickLog(false)} style={{background:'none',border:'none',fontSize:'20px',cursor:'pointer',color:C.muted}}>✕</button>
             </div>
             <div style={{display:'grid',gap:'10px',marginBottom:'14px'}}>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}>
+                <div><label style={lblS()}>Service Date</label><input type="date" value={quickEntry.date} onChange={e=>setQuickEntry(p=>({...p,date:e.target.value}))} style={inp()}/></div>
+                <div><label style={lblS()}>Service Time</label><input type="time" value={quickEntry.time} onChange={e=>setQuickEntry(p=>({...p,time:e.target.value}))} style={inp()}/></div>
+              </div>
               <div><label style={lblS()}>Client *</label><ClientAutocomplete value={quickEntry.client} onChange={v=>setQuickEntry(p=>({...p,client:v}))} clients={clients}/></div>
               <div><label style={lblS()}>Service *</label>
                 <select value={quickEntry.serviceId} onChange={e=>{const sv=catalog.find(c=>c.id===e.target.value);setQuickEntry(p=>({...p,serviceId:e.target.value,retailPrice:sv?.price||''}));}} style={sel()}>
@@ -1164,14 +2581,14 @@ export default function App(){
               const sv=catalog.find(c=>c.id===quickEntry.serviceId);
               const price=parseFloat(quickEntry.retailPrice)||(sv?.price||0);
               const autoCOG2=cogCalc(sv,0,0);
-              const e2={id:uid(),date:new Date().toISOString().split('T')[0],client:quickEntry.client,serviceId:quickEntry.serviceId,retailPrice:price,discount:parseFloat(quickEntry.discount)||0,tip:parseFloat(quickEntry.tip)||0,unitsUsed:'',vialsUsed:'',cogsManual:autoCOG2,cogsOverride:false,notes:''};
+              const e2={id:uid(),date:quickEntry.date||new Date().toISOString().split('T')[0],time:quickEntry.time||'',client:quickEntry.client,serviceId:quickEntry.serviceId,retailPrice:price,discount:parseFloat(quickEntry.discount)||0,tip:parseFloat(quickEntry.tip)||0,unitsUsed:'',vialsUsed:'',cogsManual:autoCOG2,cogsOverride:false,notes:''};
               const qMk=`${prov?.id}:${month}`;
               setLogData(p=>({...p,[qMk]:[...(p[qMk]||[]),e2]}));
               // Add to client DB if new
               if(!clients.find(c=>c.name.toLowerCase()===quickEntry.client.toLowerCase())){
                 setClients(p=>[...p,{id:uid(),name:quickEntry.client,phone:'',email:'',notes:'',createdAt:new Date().toISOString().split('T')[0]}]);
               }
-              setQuickEntry({client:'',serviceId:'c1',retailPrice:'',discount:'0',tip:'0'});
+              setQuickEntry({date:new Date().toISOString().split('T')[0],time:'',client:'',serviceId:'c1',retailPrice:'',discount:'0',tip:'0'});
               setShowQuickLog(false);
             }}>✓ Log Service</button>
           </div>
@@ -1179,7 +2596,7 @@ export default function App(){
       )}
 
       {/* QUICK LOG FLOATING BUTTON */}
-      {!isAdmin&&auth?.role!=='va'&&(
+      {auth?.role!=='va'&&(
         <button onClick={()=>setShowQuickLog(true)} style={{position:'fixed',bottom:'24px',right:'24px',background:C.navy,color:'#fff',border:'none',borderRadius:'999px',width:'56px',height:'56px',fontSize:'24px',cursor:'pointer',boxShadow:'0 4px 20px rgba(37,54,73,0.35)',zIndex:150,display:'flex',alignItems:'center',justifyContent:'center'}}>+</button>
       )}
 
@@ -1586,15 +3003,25 @@ export default function App(){
         )}
 
         {view==='expenses'&&isAdmin&&<ExpensesView expenses={expenses} setExpenses={setExpenses} month={month} payroll={payroll} setPayroll={setPayroll} providers={providers} logData={logData} hoursData={hoursData} retailData={retailData} catalog={catalog}/>}
-        {view==='projects'&&isAdmin&&<ProjectsView projects={projects} setProjects={setProjects} providers={providers} vaUsers={vaUsers} setVaUsers={setVaUsers} creds={creds} setCreds={setCreds} emailConfig={emailConfig}/>}
-        {view==='tasks'&&auth?.role!=='admin'&&auth?.role!=='va'&&<TasksView projects={projects} setProjects={setProjects} provId={auth?.providerId} provName={prov?.name} month={month} importantDetails={importantDetails} setImportantDetails={setImportantDetails} emailConfig={emailConfig} providerName={prov?.name}/>}
+        {view==='projects'&&isAdmin&&<ProjectsView projects={projects} setProjects={setProjects} providers={providers} vaUsers={vaUsers} setVaUsers={setVaUsers} creds={creds} setCreds={setCreds} emailConfig={emailConfig} month={month} setMonth={setMonth}/>}
+        {view==='tasks'&&auth?.role!=='admin'&&auth?.role!=='va'&&<TasksView projects={projects} setProjects={setProjects} provId={auth?.providerId} provName={prov?.name} month={month} importantDetails={importantDetails} setImportantDetails={setImportantDetails} emailConfig={emailConfig} providerName={prov?.name} kpiData={kpiData} setKpiData={setKpiData}/>}
         {auth?.role==='va'&&<VAView projects={projects} setProjects={setProjects} auth={auth} vaUsers={vaUsers} setVaUsers={setVaUsers} month={month} importantDetails={importantDetails} setImportantDetails={setImportantDetails} emailConfig={emailConfig}/>}
-        {view==='calendar'&&isAdmin&&<CalendarView projects={projects} month={month} setMonth={setMonth} providers={providers}/>}
-        {view==='clients'&&isAdmin&&<ClientDatabaseView clients={clients} setClients={setClients}/>}
+        {view==='kpi'&&isAdmin&&<KPIView providers={providers} kpiData={kpiData} setKpiData={setKpiData} month={month}/>}
         {view==='analytics'&&isAdmin&&<AnalyticsView expenses={expenses} payroll={payroll} providers={providers} logData={logData} hoursData={hoursData} retailData={retailData} catalog={catalog} month={month}/>}
         {view==='breakeven'&&isAdmin&&<BreakevenView expenses={expenses} payroll={payroll} providers={providers} logData={logData} hoursData={hoursData} retailData={retailData} catalog={catalog}/>}
 
-        <div style={{textAlign:'center',padding:'20px 0 8px',fontSize:'9px',color:C.muted,letterSpacing:'0.12em',fontWeight:700}}>
+
+        {/* PROVIDER KPI VIEW on staff dashboard */}
+        {view==='dashboard'&&!isAdmin&&auth?.role!=='va'&&(
+          <ProviderKPIView provId={auth?.providerId} provName={prov?.name} kpiData={kpiData} setKpiData={setKpiData}/>
+        )}
+
+        {/* PROVIDER DAILY/WEEKLY TASK VIEW on staff dashboard */}
+        {view==='dashboard'&&!isAdmin&&auth?.role!=='va'&&(
+          <ProviderTaskView projects={projects} setProjects={setProjects} provId={auth?.providerId} provName={prov?.name} month={month}/>
+        )}
+
+                <div style={{textAlign:'center',padding:'20px 0 8px',fontSize:'9px',color:C.muted,letterSpacing:'0.12em',fontWeight:700}}>
           LUMÉ HAUS BY CORNERSTONEMD · PHYSICIAN-SUPERVISED · DR. LOUIS GILBERT, MD · LUMEHAUS.HEALTH
         </div>
       </div>
