@@ -1,3 +1,5 @@
+import { sendTaskAlert, sendHoursApproval } from './emailService.js';
+
 /* ─── IMPORTANT DETAILS BLOCK ───────────────────────────── */
 export function ImportantDetailsBlock({personId,personName,importantDetails,setImportantDetails}){
   const details = importantDetails[personId] || {notes:'',links:[]};
@@ -136,7 +138,7 @@ const StatusBadge=({s})=>{const cs=statusColor[s]||{bg:'#eee',color:'#888'};retu
 const PriBadge=({p})=>{const cs=priorityColor[p]||{bg:'#eee',color:'#888'};return<span style={{display:'inline-block',padding:'2px 8px',borderRadius:'999px',background:cs.bg,color:cs.color,fontSize:'9px',fontWeight:700}}>{p}</span>;};
 
 /* ── PROJECTS VIEW (admin) ── */
-export function ProjectsView({projects,setProjects,providers,vaUsers,setVaUsers,creds,setCreds}){
+export function ProjectsView({projects,setProjects,providers,vaUsers,setVaUsers,creds,setCreds,emailConfig}){
   const[tab,setTab]=useState('projects');
   const[showForm,setShowForm]=useState(false);
   const[editId,setEditId]=useState(null);
@@ -355,6 +357,7 @@ export function ProjectsView({projects,setProjects,providers,vaUsers,setVaUsers,
                             </div>
                             <div><label style={lblS()}>Due Date</label><input type="date" value={taskForm.dueDate} onChange={e=>setTaskForm(p=>({...p,dueDate:e.target.value}))} style={inp()}/></div>
                             <div><label style={lblS()}>Notes</label><input value={taskForm.notes} onChange={e=>setTaskForm(p=>({...p,notes:e.target.value}))} placeholder="Optional notes" style={inp()}/></div>
+                            <div><label style={lblS()}>Repeat</label><select value={taskForm.repeat||'none'} onChange={e=>setTaskForm(p=>({...p,repeat:e.target.value}))} style={{...sel(),padding:'5px 8px',fontSize:'11px'}}>{'none,weekly,monthly'.split(',').map(o=><option key={o} value={o}>{o.charAt(0).toUpperCase()+o.slice(1)}</option>)}</select></div>
                             <button onClick={()=>addTask(proj.id)} style={{...Btn('primary'),padding:'8px 12px',alignSelf:'flex-end'}}>Add</button>
                           </div>
                         </div>
@@ -494,7 +497,7 @@ export function ProjectsView({projects,setProjects,providers,vaUsers,setVaUsers,
 }
 
 /* ── STAFF TASKS VIEW ── */
-export function TasksView({projects,setProjects,provId,provName,month,importantDetails,setImportantDetails}){
+export function TasksView({projects,setProjects,provId,provName,month,importantDetails,setImportantDetails,emailConfig,providerName}){
   const now=new Date();
   const curMonth=month||`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
   const [yr,mo]=curMonth.split('-').map(Number);
@@ -537,8 +540,13 @@ export function TasksView({projects,setProjects,provId,provName,month,importantD
             <div style={{fontSize:'12px',fontWeight:600,color:C.text}}>{task.title}</div>
             <div style={{fontSize:'10px',color:C.muted,marginTop:'2px'}}>📁 {task.projectTitle}{task.dueDate&&` · 📅 ${task.dueDate}`}</div>
           </div>
-          <select value={task.status} onChange={e=>updateTask(task.projectId,task.id,{status:e.target.value})}
-            style={{...sel(),padding:'4px 8px',fontSize:'11px',width:'160px'}}>{STATUS_OPTS.map(o=><option key={o}>{o}</option>)}</select>
+          <select value={task.status} onChange={e=>{
+              const newStatus=e.target.value;
+              updateTask(task.projectId,task.id,{status:newStatus});
+              if(newStatus==='Assistance Needed'||newStatus==='Approval Needed'){
+                sendTaskAlert({emailConfig,taskTitle:task.title,projectTitle:task.projectTitle,status:newStatus,providerName:providerName||'Staff'});
+              }
+            }} style={{...sel(),padding:'4px 8px',fontSize:'11px',width:'160px'}}>{STATUS_OPTS.map(o=><option key={o}>{o}</option>)}</select>
         </div>
         {/* NOTES DISPLAY */}
         {task.notes&&!editingNote&&(
@@ -603,8 +611,110 @@ export function TasksView({projects,setProjects,provId,provName,month,importantD
   );
 }
 
+
+/* ── VA DAILY TIMESHEET ── */
+function VATimesheet({va,vaId,vaUsers,setVaUsers,month,ml,emailConfig}){
+  const[yr,mo]=month.split('-').map(Number);
+  const daysInMonth=new Date(yr,mo,0).getDate();
+  const[showLog,setShowLog]=useState(false);
+  const[submitting,setSubmitting]=useState(false);
+  const[submitted,setSubmitted]=useState(false);
+
+  // Get timesheet for this month
+  const timesheet=va?.timesheet?.[month]||{};
+
+  function setHours(day,val){
+    setVaUsers(prev=>prev.map(v=>v.id===vaId?{...v,timesheet:{...(v.timesheet||{}),[month]:{...(v.timesheet?.[month]||{}),[day]:val===''?undefined:+val}}}:v));
+  }
+
+  // Build weeks
+  const weeks=[];
+  let week=[];
+  for(let d=1;d<=daysInMonth;d++){
+    const date=new Date(yr,mo-1,d);
+    week.push({day:d,dow:date.toLocaleDateString('en-US',{weekday:'short'}),hours:timesheet[d]||0});
+    if(date.getDay()===6||d===daysInMonth){weeks.push([...week]);week=[];}
+  }
+
+  const totalHours=Object.values(timesheet).reduce((s,h)=>s+(+h||0),0);
+  const weekTotals=weeks.map(w=>w.reduce((s,d)=>s+(+d.hours||0),0));
+
+  async function submitForApproval(){
+    setSubmitting(true);
+    const details=weeks.map((w,i)=>'Week '+(i+1)+': '+weekTotals[i]+' hrs\n'+w.filter(d=>d.hours>0).map(d=>'  '+d.dow+' '+mo+'/'+d.day+': '+d.hours+' hrs').join('\n')).join('\n\n');
+    const sent=await sendHoursApproval({emailConfig,vaName:va.name,weekLabel:ml,hours:totalHours,details});
+    setSubmitting(false);
+    setSubmitted(true);
+    setTimeout(()=>setSubmitted(false),4000);
+  }
+
+  return(
+    <div style={{...cardS(),border:`2px solid ${C.accent}33`}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'10px',flexWrap:'wrap',gap:'8px'}}>
+        <div>
+          <div style={{fontWeight:700,fontSize:'13px',color:C.navy}}>⏱ Daily Timesheet — {ml}</div>
+          <div style={{fontSize:'10px',color:C.muted,marginTop:'2px'}}>Log hours each day. Submit weekly for admin approval.</div>
+        </div>
+        <div style={{display:'flex',gap:'8px',alignItems:'center'}}>
+          <div style={{textAlign:'right'}}>
+            <div style={{fontSize:'9px',fontWeight:700,textTransform:'uppercase',letterSpacing:'0.08em',color:C.accent}}>Total Hours</div>
+            <div style={{fontSize:'22px',fontWeight:300,fontFamily:serif,color:C.navy,lineHeight:1}}>{totalHours}</div>
+          </div>
+          <button onClick={()=>setShowLog(!showLog)} style={{...Btn('secondary',{padding:'7px 14px',fontSize:'11px'})}}>
+            {showLog?'▲ Hide':'▼ Log Hours'}
+          </button>
+        </div>
+      </div>
+
+      {showLog&&(
+        <div>
+          {weeks.map((week,wi)=>(
+            <div key={wi} style={{marginBottom:'14px'}}>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'8px'}}>
+                <span style={{fontSize:'10px',fontWeight:700,color:C.navy,background:C.accentBg,padding:'2px 10px',borderRadius:'999px'}}>Week {wi+1}</span>
+                <span style={{fontSize:'10px',color:C.muted,fontWeight:700}}>Total: <strong style={{color:C.navy}}>{weekTotals[wi]} hrs</strong></span>
+              </div>
+              <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(70px,1fr))',gap:'6px'}}>
+                {week.map(({day,dow,hours})=>(
+                  <div key={day} style={{background:hours>0?C.accentBg:C.bg,borderRadius:'8px',padding:'8px',border:`1px solid ${hours>0?C.accent+'44':C.border}`,textAlign:'center'}}>
+                    <div style={{fontSize:'9px',fontWeight:700,color:C.muted,marginBottom:'2px'}}>{dow}</div>
+                    <div style={{fontSize:'10px',color:C.muted,marginBottom:'5px'}}>{mo}/{day}</div>
+                    <input type="number" value={hours||''} min="0" max="24" step="0.5" placeholder="0"
+                      onChange={e=>setHours(day,e.target.value)}
+                      style={{width:'100%',textAlign:'center',background:'#fff',border:`1px solid ${C.border}`,borderRadius:'5px',padding:'4px 2px',fontFamily:sans,fontSize:'12px',fontWeight:700,color:C.navy,outline:'none'}}/>
+                    <div style={{fontSize:'8px',color:C.muted,marginTop:'2px'}}>hrs</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+
+          <div style={{borderTop:`1px solid ${C.border}`,paddingTop:'12px',display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:'10px'}}>
+            <div style={{fontSize:'10px',color:C.muted}}>Click "Submit for Approval" to email your hours to admin for review.</div>
+            <button onClick={submitForApproval} disabled={submitting||totalHours===0}
+              style={{...Btn('primary',{padding:'9px 20px'}),opacity:totalHours===0?0.5:1}}>
+              {submitting?'Sending…':submitted?'✓ Sent!':'📧 Submit for Approval'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {!showLog&&totalHours>0&&(
+        <div style={{display:'flex',gap:'10px',flexWrap:'wrap'}}>
+          {weekTotals.map((wt,i)=>wt>0&&(
+            <div key={i} style={{background:C.bg,borderRadius:'7px',padding:'6px 12px',border:`1px solid ${C.border}`}}>
+              <span style={{fontSize:'10px',color:C.muted}}>Wk {i+1}: </span>
+              <span style={{fontSize:'11px',fontWeight:700,color:C.navy}}>{wt} hrs</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ── VA VIEW ── */
-export function VAView({projects,setProjects,auth,vaUsers,month,importantDetails,setImportantDetails}){
+export function VAView({projects,setProjects,auth,vaUsers,setVaUsers,month,importantDetails,setImportantDetails,emailConfig}){
   const va=vaUsers.find(v=>v.id===auth.vaId)||{name:auth.vaName,hourlyRate:0,hoursLogged:{}};
   const now=new Date();
   const curMonth=month||`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
@@ -657,6 +767,9 @@ export function VAView({projects,setProjects,auth,vaUsers,month,importantDetails
           </div>
         </div>
       </div>
+
+      {/* VA DAILY TIMESHEET */}
+      <VATimesheet va={va} vaId={auth.vaId} vaUsers={vaUsers} setVaUsers={setVaUsers} month={curMonth} ml={ml} emailConfig={emailConfig}/>
 
       <div style={cardS()}>
         <div style={lblS()}>My Tasks — {ml}</div>
