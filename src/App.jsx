@@ -2871,8 +2871,8 @@ export default function App(){
                   <div><label style={lblS()}>Date</label><input type="date" value={entry.date} onChange={e=>setEntry(p=>({...p,date:e.target.value}))} style={inp()}/></div>
                   <div><label style={lblS()}>Client *</label><ClientAutocomplete value={entry.client} onChange={v=>setEntry(p=>({...p,client:v}))} clients={clients}/></div>
                   <div style={{gridColumn:'span 2'}}><label style={lblS()}>Service *</label>
-                    <select value={entry.serviceId} onChange={e=>{const sv=catalog.find(c=>c.id===e.target.value);setEntry(p=>({...p,serviceId:e.target.value,retailPrice:sv?.price||'',unitsUsed:'',vialsUsed:'',cogsManual:'',cogsOverride:false}));}} style={sel()}>
-                      {catalog.filter(c=>c.active).map(c=><option key={c.id} value={c.id}>{c.name} ({c.cat})</option>)}
+                    <select value={entry.serviceId} onChange={e=>{const sv=(catalog||[]).find(c=>c.id===e.target.value);setEntry(p=>({...p,serviceId:e.target.value,retailPrice:sv?.price||'',unitsUsed:'',vialsUsed:'',cogsManual:'',cogsOverride:false}));}} style={sel()}>
+                      {(catalog||[]).filter(c=>c.active).map(c=><option key={c.id} value={c.id}>{c.name} ({c.cat})</option>)}
                     </select>
                   </div>
                   <div><label style={lblS()}>Retail Price ($)</label><input type="number" value={entry.retailPrice} onChange={e=>setEntry(p=>({...p,retailPrice:e.target.value}))} placeholder={`${selSvc?.price||0}`} style={inp()}/></div>
@@ -2883,7 +2883,7 @@ export default function App(){
                   <div>
                     <label style={lblS()}>COGs <span style={{textTransform:'none',fontWeight:400,color:C.muted,letterSpacing:0}}>Auto: {f2(autoCOG)}</span></label>
                     <div style={{display:'flex',gap:'6px'}}>
-                      <input type="number" value={entry.cogsOverride?entry.cogsManual:autoCOG.toFixed(2)} onChange={e=>setEntry(p=>({...p,cogsManual:e.target.value,cogsOverride:true}))} style={inp({flex:1})}/>
+                      <input type="number" value={entry.cogsOverride?entry.cogsManual:(+autoCOG||0).toFixed(2)} onChange={e=>setEntry(p=>({...p,cogsManual:e.target.value,cogsOverride:true}))} style={inp({flex:1})}/>
                       {entry.cogsOverride&&<button onClick={()=>setEntry(p=>({...p,cogsOverride:false,cogsManual:''}))} style={Btn('secondary',{padding:'6px 8px',fontSize:'10px'})}>↺</button>}
                     </div>
                   </div>
@@ -2901,11 +2901,11 @@ export default function App(){
             {entries.length===0?<div style={{textAlign:'center',padding:'36px',color:C.muted}}>No entries for {ml}. Add the first one above!</div>:(
               <div style={{overflowX:'auto'}}>
                 <table style={{width:'100%',borderCollapse:'collapse',fontSize:'11px',minWidth:'720px'}}>
-                  <thead><tr>{['Date','Wk','Client','Service','Retail','Disc','Tip','COGs','Net','Profit','Notes',...(isAdmin?['']:[''])].map(h=><th key={h+Math.random()} style={{textAlign:'left',padding:'5px 7px',fontSize:'9px',fontWeight:700,letterSpacing:'0.06em',textTransform:'uppercase',color:C.muted,borderBottom:`1px solid ${C.border}`}}>{h}</th>)}</tr></thead>
+                  <thead><tr>{['Date','Wk','Client','Service','Retail','Disc','Tip','COGs','Net','Profit','Notes',...(isAdmin?['Del']:[])].map(h=><th key={h} style={{textAlign:'left',padding:'5px 7px',fontSize:'9px',fontWeight:700,letterSpacing:'0.06em',textTransform:'uppercase',color:C.muted,borderBottom:`1px solid ${C.border}`}}>{h}</th>)}</tr></thead>
                   <tbody>
-                    {[...entries].reverse().map(e=>{const sv=catalog.find(c=>c.id===e.serviceId);const net=(+e.retailPrice||0)-(+e.discount||0);const cogs=e.cogsOverride?(+e.cogsManual||0):cogCalc(sv,e.unitsUsed,e.vialsUsed);return(
+                    {[...(entries||[])].reverse().map(e=>{const sv=(catalog||[]).find(c=>c.id===e.serviceId);const net=(+e.retailPrice||0)-(+e.discount||0);const cogs=e.cogsOverride?(+e.cogsManual||0):cogCalc(sv,e.unitsUsed,e.vialsUsed);return(
                       <tr key={e.id} style={{borderBottom:`1px solid ${C.border}`}}>
-                        <td style={{padding:'7px'}}>{e.date}</td><td style={{padding:'7px',color:C.muted}}>W{wk(e.date)}</td>
+                        <td style={{padding:'7px'}}>{e.date}</td><td style={{padding:'7px',color:C.muted}}>W{e.date?wk(e.date):'—'}</td>
                         <td style={{padding:'7px',fontWeight:600}}>{e.client}</td>
                         <td style={{padding:'7px'}}><Badge cat={sv?.cat||'other'} name={sv?.name||'—'}/></td>
                         <td style={{padding:'7px'}}>{f2(e.retailPrice)}</td>
@@ -2921,8 +2921,8 @@ export default function App(){
                   </tbody>
                   <tfoot><tr style={{background:C.bg,borderTop:`2px solid ${C.accent}55`}}>
                     <td colSpan={4} style={{padding:'8px 7px',fontWeight:700,fontSize:'10px',color:C.navy}}>TOTALS</td>
-                    <td style={{padding:'8px 7px',fontWeight:700}}>{f0(entries.reduce((s,e)=>s+(+e.retailPrice||0),0))}</td>
-                    <td style={{padding:'8px 7px',fontWeight:700,color:C.danger}}>−{f0(entries.reduce((s,e)=>s+(+e.discount||0),0))}</td>
+                    <td style={{padding:'8px 7px',fontWeight:700}}>{f0((entries||[]).reduce((s,e)=>s+(+e.retailPrice||0),0))}</td>
+                    <td style={{padding:'8px 7px',fontWeight:700,color:C.danger}}>−{f0((entries||[]).reduce((s,e)=>s+(+e.discount||0),0))}</td>
                     <td style={{padding:'8px 7px',fontWeight:700,color:C.warn}}>{f0(comm.totTips)}</td>
                     <td style={{padding:'8px 7px',fontWeight:700,color:C.muted}}>{f0(comm.totCogs)}</td>
                     <td style={{padding:'8px 7px',fontWeight:700}}>{f0(comm.svcRev)}</td>
