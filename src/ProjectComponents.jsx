@@ -790,6 +790,210 @@ function ProjectCalendar({projects,month,setMonth,providers,vaUsers}){
   );
 }
 
+
+/* ─── STAFF PROJECTS VIEW ───────────────────────────────── */
+export function StaffProjectsView({projects,setProjects,provId,provName}){
+  const[expandId,setExpandId]=useState(null);
+  const[filter,setFilter]=useState('All');
+
+  // Projects assigned to this provider OR with tasks assigned to them
+  const myProjects=projects.filter(p=>
+    p.assignedTo?.includes(provId)||
+    (p.tasks||[]).some(t=>t.assignedTo===provId)
+  );
+
+  const filtered=filter==='All'?myProjects:myProjects.filter(p=>p.status===filter);
+
+  function updateTask(projId,taskId,updates){
+    setProjects(prev=>prev.map(x=>x.id===projId?{...x,tasks:(x.tasks||[]).map(t=>t.id===taskId?{...t,...updates}:t)}:x));
+  }
+
+  const completePct=p=>{
+    if(!p.tasks||p.tasks.length===0)return 0;
+    return Math.round((p.tasks.filter(t=>t.status==='Complete').length/p.tasks.length)*100);
+  };
+
+  const stats={
+    total:myProjects.length,
+    active:myProjects.filter(p=>p.status==='In Progress').length,
+    review:myProjects.filter(p=>p.status==='Review'||p.status==='Approval Needed').length,
+    done:myProjects.filter(p=>p.status==='Complete').length,
+  };
+
+  return(
+    <div>
+      {/* STATS */}
+      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(130px,1fr))',gap:'10px',marginBottom:'14px'}}>
+        {[['My Projects',stats.total,''],['In Progress',stats.active,C.accent],['Needs Review',stats.review,C.warn],['Complete',stats.done,C.success]].map(([l,v,col])=>(
+          <div key={l} style={cardS({marginBottom:0})}>
+            <div style={lblS()}>{l}</div>
+            <div style={{fontSize:'26px',fontWeight:300,fontFamily:serif,color:col||C.text}}>{v}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* FILTER */}
+      <div style={{display:'flex',gap:'6px',flexWrap:'wrap',marginBottom:'14px'}}>
+        {['All',...STATUS_OPTS].map(f=>(
+          <button key={f} onClick={()=>setFilter(f)}
+            style={{padding:'5px 12px',borderRadius:'20px',border:`1px solid ${filter===f?C.navy:C.border}`,background:filter===f?C.navy:C.card,color:filter===f?'#fff':C.muted,cursor:'pointer',fontFamily:sans,fontSize:'11px',fontWeight:600}}>
+            {f}
+          </button>
+        ))}
+      </div>
+
+      {/* PROJECT CARDS */}
+      {filtered.length===0
+        ?<div style={cardS({textAlign:'center',padding:'40px',color:C.muted})}>No projects assigned to you yet.</div>
+        :filtered.map(proj=>{
+          const expanded=expandId===proj.id;
+          const pct=completePct(proj);
+          const myTasks=(proj.tasks||[]).filter(t=>t.assignedTo===provId||proj.assignedTo?.includes(provId));
+          const allTasks=proj.tasks||[];
+          const today=new Date().toISOString().split('T')[0];
+          const overdue=proj.dueDate&&proj.dueDate<today&&proj.status!=='Complete';
+
+          return(
+            <div key={proj.id} style={cardS()}>
+              {/* HEADER */}
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:'10px',flexWrap:'wrap',gap:'8px'}}>
+                <div style={{flex:1,minWidth:'200px'}}>
+                  <div style={{display:'flex',gap:'8px',alignItems:'center',flexWrap:'wrap',marginBottom:'4px'}}>
+                    <span style={{fontWeight:700,fontSize:'15px',color:C.navy}}>{proj.title}</span>
+                    <StatusBadge s={proj.status}/>
+                    <PriBadge p={proj.priority}/>
+                    {overdue&&<span style={{fontSize:'9px',fontWeight:700,color:C.danger,background:C.dangerBg,padding:'2px 8px',borderRadius:'999px'}}>⚠ Overdue</span>}
+                    {proj.dueDate&&<span style={{fontSize:'10px',color:C.muted}}>📅 Due {proj.dueDate}</span>}
+                  </div>
+                  {proj.description&&<div style={{fontSize:'11px',color:C.muted,marginBottom:'4px'}}>{proj.description}</div>}
+                  <div style={{fontSize:'10px',color:C.muted,display:'flex',gap:'14px',flexWrap:'wrap'}}>
+                    <span>✅ {allTasks.filter(t=>t.status==='Complete').length}/{allTasks.length} tasks complete</span>
+                    <span style={{color:C.accent,fontWeight:600}}>👤 {myTasks.length} assigned to you</span>
+                  </div>
+                </div>
+                <button onClick={()=>setExpandId(expanded?null:proj.id)}
+                  style={Btn('accent',{padding:'6px 14px',fontSize:'11px'})}>
+                  {expanded?'▲ Hide Tasks':'▼ View Tasks'}
+                </button>
+              </div>
+
+              {/* PROGRESS BAR */}
+              {allTasks.length>0&&(
+                <div style={{marginBottom:expanded?'14px':'0'}}>
+                  <div style={{display:'flex',justifyContent:'space-between',fontSize:'10px',color:C.muted,marginBottom:'4px'}}>
+                    <span>Overall Progress</span>
+                    <span style={{fontWeight:700,color:pct===100?C.success:C.navy}}>{pct}%</span>
+                  </div>
+                  <div style={{background:C.bg,borderRadius:'999px',height:'7px',overflow:'hidden'}}>
+                    <div style={{height:'100%',borderRadius:'999px',width:`${pct}%`,background:pct===100?C.success:C.accent,transition:'width 0.5s'}}/>
+                  </div>
+                </div>
+              )}
+
+              {/* TASKS */}
+              {expanded&&(
+                <div style={{borderTop:`1px solid ${C.border}`,paddingTop:'14px'}}>
+                  {/* ALL TASKS in this project */}
+                  {allTasks.length===0
+                    ?<div style={{color:C.muted,fontSize:'11px',textAlign:'center',padding:'14px'}}>No tasks in this project yet.</div>
+                    :<>
+                      {/* MY TASKS first */}
+                      {myTasks.length>0&&(
+                        <div style={{marginBottom:'12px'}}>
+                          <div style={{fontSize:'9px',fontWeight:700,textTransform:'uppercase',letterSpacing:'0.08em',color:C.accent,marginBottom:'8px'}}>Assigned to You</div>
+                          {myTasks.map(task=>(
+                            <div key={task.id} style={{padding:'10px 12px',borderRadius:'8px',marginBottom:'6px',
+                              background:task.status==='Assistance Needed'?C.dangerBg:task.status==='Approval Needed'?'#f0eaf8':C.bg,
+                              border:`1px solid ${task.status==='Assistance Needed'?C.danger+'33':task.status==='Approval Needed'?'#7a4fa355':C.border}`}}>
+                              <div style={{display:'flex',alignItems:'center',gap:'10px',marginBottom:'6px'}}>
+                                <input type="checkbox" checked={task.status==='Complete'} onChange={e=>updateTask(proj.id,task.id,{status:e.target.checked?'Complete':'In Progress'})}/>
+                                <div style={{flex:1}}>
+                                  <div style={{fontSize:'12px',fontWeight:600,color:task.status==='Complete'?C.muted:C.text,textDecoration:task.status==='Complete'?'line-through':'none'}}>{task.title}</div>
+                                  <div style={{fontSize:'9px',color:C.muted,display:'flex',gap:'8px',marginTop:'1px',flexWrap:'wrap'}}>
+                                    {task.dueDate&&<span>📅 {task.dueDate}</span>}
+                                    {task.repeat&&task.repeat!=='none'&&<span style={{color:C.accent}}>🔄 {task.repeat}</span>}
+                                  </div>
+                                </div>
+                                <select value={task.status} onChange={e=>updateTask(proj.id,task.id,{status:e.target.value})}
+                                  style={{...sel(),padding:'4px 6px',fontSize:'10px',width:'155px',flexShrink:0}}>
+                                  {STATUS_OPTS.map(o=><option key={o}>{o}</option>)}
+                                </select>
+                              </div>
+                              {/* ADMIN NOTES - read only display */}
+                              {task.notes&&(
+                                <div style={{background:'rgba(255,255,255,0.8)',borderRadius:'6px',padding:'7px 10px',marginBottom:'6px',border:`1px solid ${C.border}`}}>
+                                  <div style={{fontSize:'9px',fontWeight:700,textTransform:'uppercase',letterSpacing:'0.08em',color:C.accent,marginBottom:'3px'}}>📋 Notes</div>
+                                  <div style={{fontSize:'11px',color:C.text,lineHeight:1.5,whiteSpace:'pre-wrap'}}>{task.notes}</div>
+                                </div>
+                              )}
+                              {/* COMMENTS */}
+                              {(task.comments||[]).length>0&&(
+                                <div style={{borderTop:`1px solid ${C.border}`,paddingTop:'6px',marginBottom:'6px'}}>
+                                  {task.comments.map((cm,ci)=>(
+                                    <div key={ci} style={{fontSize:'10px',color:C.text,padding:'4px 8px',background:'rgba(255,255,255,0.6)',borderRadius:'6px',marginBottom:'3px',borderLeft:`3px solid ${cm.author==='Admin'?C.accent:C.success}`}}>
+                                      <span style={{fontWeight:700,color:C.navy}}>{cm.author}: </span>{cm.text}
+                                      <span style={{color:C.muted,marginLeft:'6px',fontSize:'9px'}}>{cm.date}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                              {/* ADD COMMENT */}
+                              <input placeholder="Add a comment… (press Enter)"
+                                style={{...inp({padding:'4px 8px',fontSize:'10px',background:'rgba(255,255,255,0.7)'})}}
+                                onKeyDown={e=>{if(e.key==='Enter'&&e.target.value.trim()){updateTask(proj.id,task.id,{comments:[...(task.comments||[]),{text:e.target.value.trim(),author:provName,date:new Date().toISOString().split('T')[0]}]});e.target.value='';}}}/>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* OTHER TASKS (not assigned to this provider) — view only */}
+                      {allTasks.filter(t=>!myTasks.find(m=>m.id===t.id)).length>0&&(
+                        <div>
+                          <div style={{fontSize:'9px',fontWeight:700,textTransform:'uppercase',letterSpacing:'0.08em',color:C.muted,marginBottom:'8px'}}>Other Team Tasks</div>
+                          {allTasks.filter(t=>!myTasks.find(m=>m.id===t.id)).map(task=>(
+                            <div key={task.id} style={{display:'flex',alignItems:'center',gap:'10px',padding:'7px 10px',borderRadius:'7px',marginBottom:'4px',background:C.bg,border:`1px solid ${C.border}`,opacity:0.75}}>
+                              <StatusBadge s={task.status}/>
+                              <div style={{flex:1}}>
+                                <div style={{fontSize:'11px',color:C.muted,textDecoration:task.status==='Complete'?'line-through':'none'}}>{task.title}</div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </>
+                  }
+
+                  {/* PROJECT NOTES */}
+                  {(proj.notes||[]).length>0&&(
+                    <div style={{marginTop:'12px',borderTop:`1px solid ${C.border}`,paddingTop:'12px'}}>
+                      <div style={{fontSize:'9px',fontWeight:700,textTransform:'uppercase',letterSpacing:'0.08em',color:C.accent,marginBottom:'8px'}}>📝 Project Notes & Links</div>
+                      {proj.notes.map(note=>(
+                        <div key={note.id} style={{display:'flex',alignItems:'flex-start',gap:'10px',padding:'8px 12px',borderRadius:'8px',marginBottom:'5px',background:C.bg,border:`1px solid ${C.border}`}}>
+                          <div style={{flex:1}}>
+                            <div style={{fontSize:'11px',color:C.text,lineHeight:1.5}}>{note.text}</div>
+                            {note.link&&(
+                              <a href={note.link.startsWith('http')?note.link:`https://${note.link}`} target="_blank" rel="noreferrer"
+                                style={{fontSize:'11px',color:C.accent,fontWeight:600,textDecoration:'none',display:'inline-flex',alignItems:'center',gap:'4px',marginTop:'4px',padding:'2px 10px',background:C.accentBg,borderRadius:'999px'}}>
+                                🔗 {note.link.replace(/^https?:\/\//,'')}
+                              </a>
+                            )}
+                            <div style={{fontSize:'9px',color:C.muted,marginTop:'3px'}}>{note.createdAt}</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })
+      }
+    </div>
+  );
+}
+
+
 /* ── VA DAILY TIMESHEET ── */
 function VATimesheet({va,vaId,vaUsers,setVaUsers,month,ml,emailConfig}){
   const[yr,mo]=month.split('-').map(Number);
