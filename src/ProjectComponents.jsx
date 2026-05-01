@@ -162,7 +162,7 @@ export function ProjectsView({projects,setProjects,providers,vaUsers,setVaUsers,
 
   const filtered=projects.filter(p=>{
     const statusMatch=filter==='All'||p.status===filter;
-    const assigneeMatch=assigneeFilter==='All'||p.assignedTo?.includes(assigneeFilter)||(p.tasks||[]).some(t=>t.assignedTo===assigneeFilter);
+    const assigneeMatch=assigneeFilter==='All'||p.assignedTo?.includes(assigneeFilter)||(p?.tasks||[]).some(t=>t.assignedTo===assigneeFilter);
     return statusMatch&&assigneeMatch;
   });
   const stats={
@@ -409,9 +409,9 @@ export function ProjectsView({projects,setProjects,providers,vaUsers,setVaUsers,
                         </div>
                       </div>
                     )}
-                    {(proj.notes||[]).length===0&&addingNoteTo!==proj.id
+                    {(proj?.notes||[]).length===0&&addingNoteTo!==proj.id
                       ?<div style={{color:C.muted,fontSize:'11px',padding:'6px 0'}}>No notes yet — add links, reminders, or references.</div>
-                      :(proj.notes||[]).map(note=>(
+                      :(proj?.notes||[]).map(note=>(
                         <div key={note.id} style={{display:'flex',alignItems:'flex-start',gap:'10px',padding:'10px 12px',borderRadius:'8px',marginBottom:'6px',background:C.bg,border:`1px solid ${C.border}`}}>
                           <div style={{flex:1,minWidth:0}}>
                             <div style={{fontSize:'12px',color:C.text,lineHeight:1.5}}>{note.text}</div>
@@ -463,7 +463,7 @@ export function ProjectsView({projects,setProjects,providers,vaUsers,setVaUsers,
             {vaUsers.length===0
               ?<div style={{textAlign:'center',padding:'28px',color:C.muted}}>No VA accounts yet.</div>
               :vaUsers.map(va=>{
-                const vaTasks=projects.flatMap(p=>(p.tasks||[]).filter(t=>t.assignedTo===va.id).map(t=>({...t,projectTitle:p.title})));
+                const vaTasks=(projects||[]).flatMap(p=>(p?.tasks||[]).filter(t=>t.assignedTo===va.id).map(t=>({...t,projectTitle:p.title})));
                 const done=vaTasks.filter(t=>t.status==='Complete').length;
                 const totalHours=Object.values(va.hoursLogged||{}).reduce((s,h)=>s+(+h||0),0);
                 return(
@@ -514,8 +514,8 @@ export function TasksView({projects,setProjects,provId,provName,month,importantD
   const today2=new Date().toISOString().split('T')[0];
   const dayOfWeek=new Date().getDay(); // 0=Sun
 
-  const myTasks=projects.flatMap(p=>
-    (p.tasks||[]).filter(t=>{
+  const myTasks=(projects||[]).flatMap(p=>
+    (p?.tasks||[]).filter(t=>{
       const isAssigned=t.assignedTo===provId||p.assignedTo?.includes(provId);
       if(!isAssigned)return false;
       // Always include non-recurring tasks
@@ -580,7 +580,7 @@ export function TasksView({projects,setProjects,provId,provName,month,importantD
             }} style={{...sel(),padding:'4px 8px',fontSize:'11px',width:'160px'}}>{STATUS_OPTS.map(o=><option key={o}>{o}</option>)}</select>
         </div>
         {/* NOTES DISPLAY */}
-        {task.notes&&!editingNote&&(
+        {task?.notes&&!editingNote&&(
           <div style={{background:'rgba(255,255,255,0.8)',borderRadius:'6px',padding:'8px 12px',marginBottom:'6px',border:`1px solid ${C.border}`}}>
             <div style={{fontSize:'9px',fontWeight:700,textTransform:'uppercase',letterSpacing:'0.08em',color:C.accent,marginBottom:'4px'}}>📋 Notes</div>
             <div style={{fontSize:'11px',color:C.text,lineHeight:1.6,whiteSpace:'pre-wrap'}}>{task.notes}</div>
@@ -652,7 +652,7 @@ function ProjectCalendar({projects,month,setMonth,providers,vaUsers}){
 
   const allAssignees=[
     ...providers.map(p=>({id:p.id,name:p.name,color:p.color})),
-    ...(vaUsers||[]).map(v=>({id:v.id,name:v.name,color:'#9a6fa3'})),
+    ,...(vaUsers||[]).map(v=>({id:v.id,name:v.name,color:'#9a6fa3'})),
   ];
 
   const firstDay=new Date(yr,mo-1,1).getDay();
@@ -797,9 +797,9 @@ export function StaffProjectsView({projects,setProjects,provId,provName}){
   const[filter,setFilter]=useState('All');
 
   // Projects assigned to this provider OR with tasks assigned to them
-  const myProjects=projects.filter(p=>
+  const myProjects=(projects||[]).filter(p=>
     p.assignedTo?.includes(provId)||
-    (p.tasks||[]).some(t=>t.assignedTo===provId)
+    (p?.tasks||[]).some(t=>t.assignedTo===provId)
   );
 
   const filtered=filter==='All'?myProjects:myProjects.filter(p=>p.status===filter);
@@ -920,14 +920,14 @@ export function StaffProjectsView({projects,setProjects,provId,provName}){
                                 </select>
                               </div>
                               {/* ADMIN NOTES - read only display */}
-                              {task.notes&&(
+                              {task?.notes&&(
                                 <div style={{background:'rgba(255,255,255,0.8)',borderRadius:'6px',padding:'7px 10px',marginBottom:'6px',border:`1px solid ${C.border}`}}>
                                   <div style={{fontSize:'9px',fontWeight:700,textTransform:'uppercase',letterSpacing:'0.08em',color:C.accent,marginBottom:'3px'}}>📋 Notes</div>
                                   <div style={{fontSize:'11px',color:C.text,lineHeight:1.5,whiteSpace:'pre-wrap'}}>{task.notes}</div>
                                 </div>
                               )}
                               {/* COMMENTS */}
-                              {(task.comments||[]).length>0&&(
+                              {(task?.comments||[]).length>0&&(
                                 <div style={{borderTop:`1px solid ${C.border}`,paddingTop:'6px',marginBottom:'6px'}}>
                                   {task.comments.map((cm,ci)=>(
                                     <div key={ci} style={{fontSize:'10px',color:C.text,padding:'4px 8px',background:'rgba(255,255,255,0.6)',borderRadius:'6px',marginBottom:'3px',borderLeft:`3px solid ${cm.author==='Admin'?C.accent:C.success}`}}>
@@ -940,7 +940,7 @@ export function StaffProjectsView({projects,setProjects,provId,provName}){
                               {/* ADD COMMENT */}
                               <input placeholder="Add a comment… (press Enter)"
                                 style={{...inp({padding:'4px 8px',fontSize:'10px',background:'rgba(255,255,255,0.7)'})}}
-                                onKeyDown={e=>{if(e.key==='Enter'&&e.target.value.trim()){updateTask(proj.id,task.id,{comments:[...(task.comments||[]),{text:e.target.value.trim(),author:provName,date:new Date().toISOString().split('T')[0]}]});e.target.value='';}}}/>
+                                onKeyDown={e=>{if(e.key==='Enter'&&e.target.value.trim()){updateTask(proj.id,task.id,{comments:[...(task?.comments||[]),{text:e.target.value.trim(),author:provName,date:new Date().toISOString().split('T')[0]}]});e.target.value='';}}}/>
                             </div>
                           ))}
                         </div>
@@ -964,7 +964,7 @@ export function StaffProjectsView({projects,setProjects,provId,provName}){
                   }
 
                   {/* PROJECT NOTES */}
-                  {(proj.notes||[]).length>0&&(
+                  {(proj?.notes||[]).length>0&&(
                     <div style={{marginTop:'12px',borderTop:`1px solid ${C.border}`,paddingTop:'12px'}}>
                       <div style={{fontSize:'9px',fontWeight:700,textTransform:'uppercase',letterSpacing:'0.08em',color:C.accent,marginBottom:'8px'}}>📝 Project Notes & Links</div>
                       {proj.notes.map(note=>(
@@ -1003,10 +1003,10 @@ function VATimesheet({va,vaId,vaUsers,setVaUsers,month,ml,emailConfig}){
   const[submitted,setSubmitted]=useState(false);
 
   // Get timesheet for this month
-  const timesheet=va?.timesheet?.[month]||{};
+  const timesheet=(va?.timesheet?.[month])||{};
 
   function setHours(day,val){
-    setVaUsers(prev=>prev.map(v=>v.id===vaId?{...v,timesheet:{...(v.timesheet||{}),[month]:{...(v.timesheet?.[month]||{}),[day]:val===''?undefined:+val}}}:v));
+    setVaUsers(prev=>prev.map(v=>v.id===vaId?{...v,timesheet:{...(v?.timesheet||{}),[month]:{...(v.timesheet?.[month]||{}),[day]:val===''?undefined:+val}}}:v));
   }
 
   // Build weeks
@@ -1019,7 +1019,7 @@ function VATimesheet({va,vaId,vaUsers,setVaUsers,month,ml,emailConfig}){
   }
 
   const totalHours=Object.values(timesheet).reduce((s,h)=>s+(+h||0),0);
-  const weekTotals=weeks.map(w=>w.reduce((s,d)=>s+(+d.hours||0),0));
+  const weekTotals=(weeks||[]).map(w=>(w||[]).reduce((s,d)=>s+(+d.hours||0),0));
 
   async function submitForApproval(){
     setSubmitting(true);
@@ -1106,8 +1106,8 @@ export function VAView({projects,setProjects,auth,vaUsers,setVaUsers,month,impor
   const today3=new Date().toISOString().split('T')[0];
   const dow=new Date().getDay();
 
-  const myTasks=projects.flatMap(p=>
-    (p.tasks||[]).filter(t=>{
+  const myTasks=(projects||[]).flatMap(p=>
+    (p?.tasks||[]).filter(t=>{
       if(t.assignedTo!==auth.vaId)return false;
       if(!t.repeat||t.repeat==='none')return true;
       if(t.repeat==='daily')return true;
@@ -1196,7 +1196,7 @@ export function VAView({projects,setProjects,auth,vaUsers,setVaUsers,month,impor
                       </select>
                     </div>
                     {/* NOTES DISPLAY */}
-                    {task.notes&&(
+                    {task?.notes&&(
                       <div style={{background:'rgba(255,255,255,0.8)',borderRadius:'6px',padding:'8px 12px',marginBottom:'8px',border:`1px solid ${C.border}`}}>
                         <div style={{fontSize:'9px',fontWeight:700,textTransform:'uppercase',letterSpacing:'0.08em',color:C.accent,marginBottom:'4px'}}>📋 Notes</div>
                         <div style={{fontSize:'11px',color:C.text,lineHeight:1.6,whiteSpace:'pre-wrap'}}>{task.notes}</div>
