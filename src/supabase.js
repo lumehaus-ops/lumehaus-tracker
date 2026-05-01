@@ -5,6 +5,7 @@ const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || 'sb_publisha
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
 
+// Get a value - tries Supabase first, falls back to localStorage
 export async function dbGet(key) {
   try {
     const { data, error } = await supabase
@@ -12,19 +13,38 @@ export async function dbGet(key) {
       .select('value')
       .eq('key', key)
       .single()
-    if (error || !data) return null
-    return data.value
+    if (!error && data) {
+      // Sync to localStorage as backup
+      try { localStorage.setItem(key, data.value); } catch(e) {}
+      return data.value
+    }
   } catch (e) {
-    return null
+    console.warn('Supabase read failed for', key, e)
   }
+  // Fall back to localStorage
+  try {
+    const local = localStorage.getItem(key)
+    if (local) return local
+  } catch(e) {}
+  return null
 }
 
+// Set a value - saves to BOTH Supabase and localStorage
 export async function dbSet(key, value) {
+  // Always save to localStorage first (instant, never fails)
+  try { localStorage.setItem(key, value); } catch(e) {}
+  
+  // Then save to Supabase (cloud sync)
   try {
-    await supabase
+    const { error } = await supabase
       .from('app_data')
       .upsert({ key, value, updated_at: new Date().toISOString() }, { onConflict: 'key' })
-  } catch (e) {}
+    if (error) {
+      console.error('Supabase save failed for', key, error)
+    }
+  } catch (e) {
+    console.error('Supabase save error for', key, e)
+  }
 }
 
 export async function uploadReceipt(file, path) {
