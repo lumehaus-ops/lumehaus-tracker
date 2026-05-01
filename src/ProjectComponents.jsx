@@ -152,7 +152,7 @@ export function ProjectsView({projects,setProjects,providers,vaUsers,setVaUsers,
   ];
 
   const blankP=()=>({id:uid(),title:'',description:'',assignedTo:[],dueDate:'',priority:'Medium',status:'Not Started',tasks:[],notes:[],createdAt:new Date().toISOString().split('T')[0],hoursLogged:{}});
-  const blankT=()=>({id:uid(),title:'',status:'Not Started',assignedTo:'',notes:'',dueDate:''});
+  const blankT=()=>({id:uid(),title:'',status:'Not Started',assignedTo:'',notes:'',dueDate:'',repeat:'none'});
   const[form,setForm]=useState(blankP());
   const[taskForm,setTaskForm]=useState(blankT());
   const[addingTaskTo,setAddingTaskTo]=useState(null);
@@ -317,6 +317,9 @@ export function ProjectsView({projects,setProjects,providers,vaUsers,setVaUsers,
                       </div>
                     </div>
                     <div style={{display:'flex',gap:'6px',alignItems:'center',flexShrink:0}}>
+                      <input type="date" value={proj.dueDate||''} onChange={e=>updateProject(proj.id,{dueDate:e.target.value})}
+                        title="Edit due date"
+                        style={{...inp({padding:'5px 8px',fontSize:'11px',width:'130px',flexShrink:0,background:'#fff'})}}/>
                       <select value={proj.status} onChange={e=>updateProject(proj.id,{status:e.target.value})} style={{...sel(),padding:'5px 8px',fontSize:'11px',width:'130px'}}>
                         {STATUS_OPTS.map(o=><option key={o}>{o}</option>)}
                       </select>
@@ -357,7 +360,7 @@ export function ProjectsView({projects,setProjects,providers,vaUsers,setVaUsers,
                             </div>
                             <div><label style={lblS()}>Due Date</label><input type="date" value={taskForm.dueDate} onChange={e=>setTaskForm(p=>({...p,dueDate:e.target.value}))} style={inp()}/></div>
                             <div><label style={lblS()}>Notes</label><input value={taskForm.notes} onChange={e=>setTaskForm(p=>({...p,notes:e.target.value}))} placeholder="Optional notes" style={inp()}/></div>
-                            <div><label style={lblS()}>Repeat</label><select value={taskForm.repeat||'none'} onChange={e=>setTaskForm(p=>({...p,repeat:e.target.value}))} style={{...sel(),padding:'5px 8px',fontSize:'11px'}}>{'none,weekly,monthly'.split(',').map(o=><option key={o} value={o}>{o.charAt(0).toUpperCase()+o.slice(1)}</option>)}</select></div>
+                            <div><label style={lblS()}>Repeat</label><select value={taskForm.repeat||'none'} onChange={e=>setTaskForm(p=>({...p,repeat:e.target.value}))} style={{...sel(),padding:'5px 8px',fontSize:'11px'}}>{'none,daily,weekly,monthly'.split(',').map(o=><option key={o} value={o}>{o.charAt(0).toUpperCase()+o.slice(1)}</option>)}</select></div>
                             <button onClick={()=>addTask(proj.id)} style={{...Btn('primary'),padding:'8px 12px',alignSelf:'flex-end'}}>Add</button>
                           </div>
                         </div>
@@ -508,12 +511,35 @@ export function TasksView({projects,setProjects,provId,provName,month,importantD
   const [yr,mo]=curMonth.split('-').map(Number);
   const ml=new Date(curMonth+'-02').toLocaleString('default',{month:'long',year:'numeric'});
 
+  const today2=new Date().toISOString().split('T')[0];
+  const dayOfWeek=new Date().getDay(); // 0=Sun
+
   const myTasks=projects.flatMap(p=>
-    (p.tasks||[]).filter(t=>t.assignedTo===provId||p.assignedTo?.includes(provId))
+    (p.tasks||[]).filter(t=>{
+      const isAssigned=t.assignedTo===provId||p.assignedTo?.includes(provId);
+      if(!isAssigned)return false;
+      // Always include non-recurring tasks
+      if(!t.repeat||t.repeat==='none')return true;
+      // Daily: always show
+      if(t.repeat==='daily')return true;
+      // Weekly: show if today is same day of week as due date (or Monday if no due date)
+      if(t.repeat==='weekly'){
+        if(!t.dueDate)return dayOfWeek===1; // default Monday
+        const dueDow=new Date(t.dueDate+'T12:00:00').getDay();
+        return dayOfWeek===dueDow;
+      }
+      // Monthly: show if today is same day of month as due date
+      if(t.repeat==='monthly'){
+        if(!t.dueDate)return new Date().getDate()===1;
+        const dueDay=parseInt(t.dueDate.split('-')[2]);
+        return new Date().getDate()===dueDay;
+      }
+      return true;
+    })
     .map(t=>({...t,projectId:p.id,projectTitle:p.title}))
   );
-  const open=myTasks.filter(t=>t.status!=='Complete');
-  const done=myTasks.filter(t=>t.status==='Complete');
+  const open=myTasks.filter(t=>t.status!=='Complete'||(t.repeat&&t.repeat!=='none'));
+  const done=myTasks.filter(t=>t.status==='Complete'&&(!t.repeat||t.repeat==='none'));
 
   const daysInMonth=new Date(yr,mo,0).getDate();
   const tasksByWeek=[1,2,3,4,5].map(w=>({
@@ -873,12 +899,28 @@ export function VAView({projects,setProjects,auth,vaUsers,setVaUsers,month,impor
   const [yr,mo]=curMonth.split('-').map(Number);
   const ml=new Date(curMonth+'-02').toLocaleString('default',{month:'long',year:'numeric'});
 
+  const today3=new Date().toISOString().split('T')[0];
+  const dow=new Date().getDay();
+
   const myTasks=projects.flatMap(p=>
-    (p.tasks||[]).filter(t=>t.assignedTo===auth.vaId)
+    (p.tasks||[]).filter(t=>{
+      if(t.assignedTo!==auth.vaId)return false;
+      if(!t.repeat||t.repeat==='none')return true;
+      if(t.repeat==='daily')return true;
+      if(t.repeat==='weekly'){
+        if(!t.dueDate)return dow===1;
+        return dow===new Date(t.dueDate+'T12:00:00').getDay();
+      }
+      if(t.repeat==='monthly'){
+        if(!t.dueDate)return new Date().getDate()===1;
+        return new Date().getDate()===parseInt(t.dueDate.split('-')[2]);
+      }
+      return true;
+    })
     .map(t=>({...t,projectId:p.id,projectTitle:p.title}))
   );
-  const open=myTasks.filter(t=>t.status!=='Complete');
-  const done=myTasks.filter(t=>t.status==='Complete');
+  const open=myTasks.filter(t=>t.status!=='Complete'||(t.repeat&&t.repeat!=='none'));
+  const done=myTasks.filter(t=>t.status==='Complete'&&(!t.repeat||t.repeat==='none'));
   const[hoursInput,setHoursInput]=useState({});
   const totalHours=Object.values(va.hoursLogged||{}).reduce((s,h)=>s+(+h||0),0);
 
