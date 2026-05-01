@@ -2491,11 +2491,12 @@ export default function App(){
   const[view,setView]=useState('dashboard');
   const[ready,setReady]=useState(false);
   const[logOpen,setLogOpen]=useState(false);
+  const[logProvFilter,setLogProvFilter]=useState('all');
   const[provOpen,setProvOpen]=useState(false);
   const[svcOpen,setSvcOpen]=useState(false);
   const[editProv,setEditProv]=useState(null);
   const[editSvc,setEditSvc]=useState(null);
-  const blankE=()=>({date:now.toISOString().split('T')[0],client:'',serviceId:'c1',retailPrice:'',discount:'0',tip:'0',unitsUsed:'',vialsUsed:'',cogsManual:'',cogsOverride:false,notes:''});
+  const blankE=()=>({date:now.toISOString().split('T')[0],client:'',serviceId:'c1',retailPrice:'',discount:'0',discountPct:'',tip:'0',unitsUsed:'',vialsUsed:'',cogsManual:'',cogsOverride:false,notes:'',editId:null});
   const blankP=()=>({id:uid(),name:'',role:'',color:'#7a9fa3',monthlyGoal:8000,hasHourly:false,compType:'commission_first',hourlyRate:0,injectableTiers:[{upTo:4999,rate:20},{upTo:99999,rate:25}],facialTiers:[{upTo:1999,rate:15},{upTo:99999,rate:20}],membershipBonus:10});
   const blankSv=()=>({id:uid(),name:'',cat:'facial',price:0,cogsType:'flat',cogsFlat:0,cogsUnit:0,cogsVial:0,unit:'session',active:true});
   const[entry,setEntry]=useState(blankE());
@@ -2651,10 +2652,34 @@ export default function App(){
 
   function saveLog(){
     if(!entry.client||!entry.serviceId)return;
-    const sv2=catalog.find(c=>c.id===entry.serviceId);
+    const sv2=(catalog||[]).find(c=>c.id===entry.serviceId);
     const cog2=entry.cogsOverride?(+entry.cogsManual||0):cogCalc(sv2,entry.unitsUsed,entry.vialsUsed);
-    const e2={...entry,id:uid(),retailPrice:+entry.retailPrice||(sv2?.price||0),discount:+entry.discount||0,tip:+entry.tip||0,cogsManual:cog2};
-    setLogData(p=>({...p,[mk]:[...(p[mk]||[]),e2]}));setEntry(blankE());setLogOpen(false);
+    const price=+entry.retailPrice||(sv2?.price||0);
+    // Discount: use $ amount, or calculate from %
+    const discAmt=entry.discount&&+entry.discount>0?+entry.discount:(entry.discountPct&&+entry.discountPct>0?price*(+entry.discountPct/100):0);
+    const e2={...entry,id:entry.editId||uid(),retailPrice:price,discount:discAmt,discountPct:price>0?((discAmt/price)*100).toFixed(1):'',tip:+entry.tip||0,cogsManual:cog2};
+    setLogData(p=>{
+      let updated;
+      if(entry.editId){
+        // Edit existing entry - find which provider key it's in
+        updated={...p};
+        Object.keys(updated).forEach(k=>{
+          updated[k]=(updated[k]||[]).map(x=>x.id===entry.editId?e2:x);
+        });
+      } else {
+        updated={...p,[mk]:[...(p[mk]||[]),e2]};
+      }
+      // Immediately sync to Supabase
+      dbSet('lh4:data',JSON.stringify(updated));
+      return updated;
+    });
+    setEntry(blankE());setLogOpen(false);
+  }
+  function startEditLog(e){
+    setEntry({...e,discountPct:e.retailPrice>0?((+e.discount/+e.retailPrice)*100).toFixed(1):'',editId:e.id});
+    setLogOpen(true);
+    // Scroll to form
+    setTimeout(()=>window.scrollTo({top:0,behavior:'smooth'}),100);
   }
   function saveProv(){
     if(!newProv.name)return;
@@ -2861,12 +2886,26 @@ export default function App(){
         {/* ── LOG ── */}
         {view==='log'&&auth?.role!=='va'&&(
           <div style={cardS()}>
-            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'12px'}}>
-              <div><div style={lblS()}>Service Log — {prov?.name||""} · {ml}</div><div style={{fontSize:'10px',color:C.muted}}>Net = Retail − Discount. COGs auto-fill from catalog.</div></div>
-              <button style={Btn('primary')} onClick={()=>setLogOpen(!logOpen)}>{logOpen?'✕ Cancel':'+ Add Service'}</button>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'12px',flexWrap:'wrap',gap:'10px'}}>
+              <div>
+                <div style={lblS()}>Service Log — {isAdmin?'All Providers':prov?.name||''} · {ml}</div>
+                <div style={{fontSize:'10px',color:C.muted}}>Net = Retail − Discount. Discount can be entered as $ or %. COGs auto-fill from catalog.</div>
+              </div>
+              <div style={{display:'flex',gap:'8px',alignItems:'center',flexWrap:'wrap'}}>
+                {isAdmin&&(
+                  <select value={logProvFilter} onChange={e=>setLogProvFilter(e.target.value)} style={{...sel(),padding:'5px 10px',fontSize:'11px',width:'140px'}}>
+                    <option value="all">All Providers</option>
+                    {providers.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
+                  </select>
+                )}
+                <button style={Btn('primary')} onClick={()=>{setEntry(blankE());setLogOpen(!logOpen);}}>{logOpen&&!entry.editId?'✕ Cancel':entry.editId?'✕ Cancel Edit':'+ Add Service'}</button>
+              </div>
             </div>
+
+            {/* ADD / EDIT FORM */}
             {logOpen&&(
-              <div style={{background:C.bg,borderRadius:'10px',padding:'16px',marginBottom:'16px',border:`1px solid ${C.border}`}}>
+              <div style={{background:C.bg,borderRadius:'10px',padding:'16px',marginBottom:'16px',border:`1px solid ${entry.editId?C.warn:C.border}`}}>
+                {entry.editId&&<div style={{fontSize:'10px',fontWeight:700,color:C.warn,marginBottom:'10px'}}>✏️ Editing existing entry — changes save immediately</div>}
                 <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(135px,1fr))',gap:'10px',marginBottom:'12px'}}>
                   <div><label style={lblS()}>Date</label><input type="date" value={entry.date} onChange={e=>setEntry(p=>({...p,date:e.target.value}))} style={inp()}/></div>
                   <div><label style={lblS()}>Client *</label><ClientAutocomplete value={entry.client} onChange={v=>setEntry(p=>({...p,client:v}))} clients={clients}/></div>
@@ -2876,7 +2915,26 @@ export default function App(){
                     </select>
                   </div>
                   <div><label style={lblS()}>Retail Price ($)</label><input type="number" value={entry.retailPrice} onChange={e=>setEntry(p=>({...p,retailPrice:e.target.value}))} placeholder={`${selSvc?.price||0}`} style={inp()}/></div>
-                  <div><label style={lblS()}>Discount ($)</label><input type="number" value={entry.discount} onChange={e=>setEntry(p=>({...p,discount:e.target.value}))} placeholder="0" style={inp()}/></div>
+                  <div>
+                    <label style={lblS()}>Discount ($)</label>
+                    <input type="number" value={entry.discount} placeholder="0"
+                      onChange={e=>{
+                        const d=e.target.value;
+                        const price=+entry.retailPrice||(selSvc?.price||0);
+                        const pct=price>0&&+d>0?((+d/price)*100).toFixed(1):'';
+                        setEntry(p=>({...p,discount:d,discountPct:pct}));
+                      }} style={inp()}/>
+                  </div>
+                  <div>
+                    <label style={lblS()}>Discount (%)</label>
+                    <input type="number" value={entry.discountPct} placeholder="0"
+                      onChange={e=>{
+                        const pct=e.target.value;
+                        const price=+entry.retailPrice||(selSvc?.price||0);
+                        const d=price>0&&+pct>0?(price*(+pct/100)).toFixed(2):'';
+                        setEntry(p=>({...p,discountPct:pct,discount:d}));
+                      }} style={inp()}/>
+                  </div>
                   <div><label style={lblS()}>Tip ($)</label><input type="number" value={entry.tip} onChange={e=>setEntry(p=>({...p,tip:e.target.value}))} placeholder="0" style={inp()}/></div>
                   {selSvc?.cogsType==='per_unit'&&<div><label style={lblS()}>Units Used</label><input type="number" value={entry.unitsUsed} onChange={e=>setEntry(p=>({...p,unitsUsed:e.target.value}))} placeholder="0" style={inp()}/></div>}
                   {selSvc?.cogsType==='per_vial'&&<div><label style={lblS()}>Vials Used</label><input type="number" value={entry.vialsUsed} onChange={e=>setEntry(p=>({...p,vialsUsed:e.target.value}))} placeholder="0" style={inp()}/></div>}
@@ -2887,51 +2945,98 @@ export default function App(){
                       {entry.cogsOverride&&<button onClick={()=>setEntry(p=>({...p,cogsOverride:false,cogsManual:''}))} style={Btn('secondary',{padding:'6px 8px',fontSize:'10px'})}>↺</button>}
                     </div>
                   </div>
-                  <div style={{gridColumn:'1/-1'}}><label style={lblS()}>Notes</label><input value={entry.notes} onChange={e=>setEntry(p=>({...p,notes:e.target.value}))} placeholder="Optional" style={inp()}/></div>
+                  <div style={{gridColumn:'1/-1'}}><label style={lblS()}>Notes</label><input value={entry.notes||''} onChange={e=>setEntry(p=>({...p,notes:e.target.value}))} placeholder="Optional" style={inp()}/></div>
                 </div>
                 <div style={{background:C.successBg,border:`1px solid ${C.success}44`,borderRadius:'8px',padding:'8px 14px',marginBottom:'12px',fontSize:'11px',display:'flex',gap:'16px',flexWrap:'wrap'}}>
                   <span style={{color:C.success,fontWeight:700}}>Preview →</span>
+                  <span>Retail: <strong>{f2(+entry.retailPrice||selSvc?.price||0)}</strong></span>
+                  <span>Discount: <strong style={{color:C.danger}}>{entry.discount&&+entry.discount>0?`−${f2(entry.discount)}${entry.discountPct?` (${entry.discountPct}%)`:''}`:'None'}</strong></span>
                   <span>Net: <strong>{f2((+entry.retailPrice||selSvc?.price||0)-(+entry.discount||0))}</strong></span>
-                  <span>COGs: <strong>{f2(entry.cogsOverride?+entry.cogsManual||0:autoCOG)}</strong></span>
                   <span>Profit: <strong>{f2(((+entry.retailPrice||selSvc?.price||0)-(+entry.discount||0))-(entry.cogsOverride?+entry.cogsManual||0:autoCOG))}</strong></span>
                 </div>
-                <button style={Btn('primary')} onClick={saveLog}>✓ Save Entry</button>
+                <div style={{display:'flex',gap:'8px'}}>
+                  <button style={Btn('primary')} onClick={saveLog}>{entry.editId?'✓ Save Changes':'✓ Save Entry'}</button>
+                  {entry.editId&&<button style={Btn('secondary')} onClick={()=>{setEntry(blankE());setLogOpen(false);}}>Cancel</button>}
+                </div>
               </div>
             )}
-            {entries.length===0?<div style={{textAlign:'center',padding:'36px',color:C.muted}}>No entries for {ml}. Add the first one above!</div>:(
-              <div style={{overflowX:'auto'}}>
-                <table style={{width:'100%',borderCollapse:'collapse',fontSize:'11px',minWidth:'720px'}}>
-                  <thead><tr>{['Date','Wk','Client','Service','Retail','Disc','Tip','COGs','Net','Profit','Notes',...(isAdmin?['Del']:[])].map(h=><th key={h} style={{textAlign:'left',padding:'5px 7px',fontSize:'9px',fontWeight:700,letterSpacing:'0.06em',textTransform:'uppercase',color:C.muted,borderBottom:`1px solid ${C.border}`}}>{h}</th>)}</tr></thead>
-                  <tbody>
-                    {[...(entries||[])].reverse().map(e=>{const sv=(catalog||[]).find(c=>c.id===e.serviceId);const net=(+e.retailPrice||0)-(+e.discount||0);const cogs=e.cogsOverride?(+e.cogsManual||0):cogCalc(sv,e.unitsUsed,e.vialsUsed);return(
-                      <tr key={e.id} style={{borderBottom:`1px solid ${C.border}`}}>
-                        <td style={{padding:'7px'}}>{e.date}</td><td style={{padding:'7px',color:C.muted}}>W{e.date?wk(e.date):'—'}</td>
-                        <td style={{padding:'7px',fontWeight:600}}>{e.client}</td>
-                        <td style={{padding:'7px'}}><Badge cat={sv?.cat||'other'} name={sv?.name||'—'}/></td>
-                        <td style={{padding:'7px'}}>{f2(e.retailPrice)}</td>
-                        <td style={{padding:'7px',color:(+e.discount||0)>0?C.danger:C.muted}}>{(+e.discount||0)>0?`−${f2(e.discount)}`:'—'}</td>
-                        <td style={{padding:'7px',color:C.warn}}>{(+e.tip||0)>0?f2(e.tip):'—'}</td>
-                        <td style={{padding:'7px',color:C.muted}}>{f2(cogs)}</td>
-                        <td style={{padding:'7px',fontWeight:600}}>{f2(net)}</td>
-                        <td style={{padding:'7px',fontWeight:700,color:(net-cogs)>=0?C.success:C.danger}}>{f2(net-cogs)}</td>
-                        <td style={{padding:'7px',color:C.muted,maxWidth:'80px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{e.notes||'—'}</td>
-                        {isAdmin&&<td style={{padding:'7px'}}><button onClick={()=>setLogData(p=>({...p,[mk]:(p[mk]||[]).filter(x=>x.id!==e.id)}))} style={{background:'none',border:'none',color:C.muted,cursor:'pointer',fontSize:'13px'}}>✕</button></td>}
-                      </tr>
-                    );})}
-                  </tbody>
-                  <tfoot><tr style={{background:C.bg,borderTop:`2px solid ${C.accent}55`}}>
-                    <td colSpan={4} style={{padding:'8px 7px',fontWeight:700,fontSize:'10px',color:C.navy}}>TOTALS</td>
-                    <td style={{padding:'8px 7px',fontWeight:700}}>{f0((entries||[]).reduce((s,e)=>s+(+e.retailPrice||0),0))}</td>
-                    <td style={{padding:'8px 7px',fontWeight:700,color:C.danger}}>−{f0((entries||[]).reduce((s,e)=>s+(+e.discount||0),0))}</td>
-                    <td style={{padding:'8px 7px',fontWeight:700,color:C.warn}}>{f0(comm.totTips)}</td>
-                    <td style={{padding:'8px 7px',fontWeight:700,color:C.muted}}>{f0(comm.totCogs)}</td>
-                    <td style={{padding:'8px 7px',fontWeight:700}}>{f0(comm.svcRev)}</td>
-                    <td style={{padding:'8px 7px',fontWeight:700,color:C.success}}>{f0(comm.gp)}</td>
-                    <td colSpan={isAdmin?2:1}/>
-                  </tr></tfoot>
-                </table>
-              </div>
-            )}
+
+            {/* LOG TABLE — admin sees all providers, staff sees own */}
+            {(()=>{
+              // Build display rows: admin sees all providers filtered, staff sees own
+              const displayRows=isAdmin
+                ?(logProvFilter==='all'
+                  ?providers.flatMap(p=>(logData[`${p.id}:${month}`]||[]).map(e=>({...e,provName:p.name,provColor:p.color,provMk:`${p.id}:${month}`})))
+                  :(logData[`${logProvFilter}:${month}`]||[]).map(e=>({...e,provName:providers.find(p=>p.id===logProvFilter)?.name||'',provColor:providers.find(p=>p.id===logProvFilter)?.color||C.accent,provMk:`${logProvFilter}:${month}`}))
+                ):(entries||[]).map(e=>({...e,provName:prov?.name||'',provColor:prov?.color||C.accent,provMk:mk}));
+
+              if(displayRows.length===0)return<div style={{textAlign:'center',padding:'36px',color:C.muted}}>No entries for {ml}.</div>;
+
+              const totRetail=displayRows.reduce((s,e)=>s+(+e.retailPrice||0),0);
+              const totDisc=displayRows.reduce((s,e)=>s+(+e.discount||0),0);
+              const totTip=displayRows.reduce((s,e)=>s+(+e.tip||0),0);
+              const totCOGs=displayRows.reduce((s,e)=>s+(e.cogsOverride?(+e.cogsManual||0):cogCalc((catalog||[]).find(c=>c.id===e.serviceId),e.unitsUsed,e.vialsUsed)),0);
+              const totNet=totRetail-totDisc;
+              const totProfit=totNet-totCOGs;
+
+              return(
+                <div style={{overflowX:'auto'}}>
+                  <table style={{width:'100%',borderCollapse:'collapse',fontSize:'11px',minWidth:'760px'}}>
+                    <thead><tr>
+                      {[...(isAdmin&&logProvFilter==='all'?['Provider']:['']),'Date','Wk','Client','Service','Retail','Disc $','Disc %','Tip','COGs','Net','Profit','Notes',''].map((h,i)=>(
+                        h===''&&i===0?null:<th key={h+i} style={{textAlign:'left',padding:'5px 7px',fontSize:'9px',fontWeight:700,letterSpacing:'0.06em',textTransform:'uppercase',color:C.muted,borderBottom:`1px solid ${C.border}`,whiteSpace:'nowrap'}}>{h}</th>
+                      )).filter(Boolean)}
+                    </tr></thead>
+                    <tbody>
+                      {[...displayRows].sort((a,b)=>new Date(b.date||0)-new Date(a.date||0)).map(e=>{
+                        const sv=(catalog||[]).find(c=>c.id===e.serviceId);
+                        const net=(+e.retailPrice||0)-(+e.discount||0);
+                        const cogs=e.cogsOverride?(+e.cogsManual||0):cogCalc(sv,e.unitsUsed,e.vialsUsed);
+                        const discPct=+e.retailPrice>0&&+e.discount>0?((+e.discount/+e.retailPrice)*100).toFixed(1):(e.discountPct||'');
+                        return(
+                          <tr key={e.id} style={{borderBottom:`1px solid ${C.border}`}}>
+                            {isAdmin&&logProvFilter==='all'&&<td style={{padding:'7px'}}><span style={{fontSize:'9px',fontWeight:700,padding:'2px 7px',borderRadius:'999px',background:e.provColor+'22',color:e.provColor}}>{e.provName}</span></td>}
+                            <td style={{padding:'7px',whiteSpace:'nowrap'}}>{e.date}</td>
+                            <td style={{padding:'7px',color:C.muted}}>W{e.date?wk(e.date):'—'}</td>
+                            <td style={{padding:'7px',fontWeight:600}}>{e.client}</td>
+                            <td style={{padding:'7px'}}><Badge cat={sv?.cat||'other'} name={sv?.name||'—'}/></td>
+                            <td style={{padding:'7px'}}>{f2(e.retailPrice)}</td>
+                            <td style={{padding:'7px',color:(+e.discount||0)>0?C.danger:C.muted}}>{(+e.discount||0)>0?`−${f2(e.discount)}`:'—'}</td>
+                            <td style={{padding:'7px',color:(+discPct||0)>0?C.danger:C.muted}}>{discPct?`${discPct}%`:'—'}</td>
+                            <td style={{padding:'7px',color:C.warn}}>{(+e.tip||0)>0?f2(e.tip):'—'}</td>
+                            <td style={{padding:'7px',color:C.muted}}>{f2(cogs)}</td>
+                            <td style={{padding:'7px',fontWeight:600}}>{f2(net)}</td>
+                            <td style={{padding:'7px',fontWeight:700,color:(net-cogs)>=0?C.success:C.danger}}>{f2(net-cogs)}</td>
+                            <td style={{padding:'7px',color:C.muted,maxWidth:'80px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{e.notes||'—'}</td>
+                            <td style={{padding:'7px',whiteSpace:'nowrap'}}>
+                              <button onClick={()=>{startEditLog(e);}} style={{background:'none',border:'none',color:C.accent,cursor:'pointer',fontSize:'12px',marginRight:'6px'}} title="Edit">✏️</button>
+                              {(isAdmin)&&<button onClick={()=>{
+                                setLogData(p=>{
+                                  const updated={...p,[e.provMk]:(p[e.provMk]||[]).filter(x=>x.id!==e.id)};
+                                  dbSet('lh4:data',JSON.stringify(updated));
+                                  return updated;
+                                });
+                              }} style={{background:'none',border:'none',color:C.muted,cursor:'pointer',fontSize:'13px'}} title="Delete">✕</button>}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                    <tfoot><tr style={{background:C.bg,borderTop:`2px solid ${C.accent}55`}}>
+                      <td colSpan={isAdmin&&logProvFilter==='all'?5:4} style={{padding:'8px 7px',fontWeight:700,fontSize:'10px',color:C.navy}}>TOTALS ({displayRows.length} entries)</td>
+                      <td style={{padding:'8px 7px',fontWeight:700}}>{f0(totRetail)}</td>
+                      <td style={{padding:'8px 7px',fontWeight:700,color:C.danger}}>−{f0(totDisc)}</td>
+                      <td style={{padding:'8px 7px',color:C.muted}}>—</td>
+                      <td style={{padding:'8px 7px',fontWeight:700,color:C.warn}}>{f0(totTip)}</td>
+                      <td style={{padding:'8px 7px',fontWeight:700,color:C.muted}}>{f0(totCOGs)}</td>
+                      <td style={{padding:'8px 7px',fontWeight:700}}>{f0(totNet)}</td>
+                      <td style={{padding:'8px 7px',fontWeight:700,color:totProfit>=0?C.success:C.danger}}>{f0(totProfit)}</td>
+                      <td colSpan={2}/>
+                    </tr></tfoot>
+                  </table>
+                </div>
+              );
+            })()}
           </div>
         )}
 
