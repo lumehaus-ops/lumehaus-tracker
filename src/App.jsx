@@ -2459,8 +2459,8 @@ export default function App(){
   }
   function saveSvc(){if(!newSvc.name)return;setCatalog(p=>[...p,{...newSvc,id:uid()}]);setNewSvc(blankSv());setSvcOpen(false);}
 
-  const navItems=isAdmin?['combined','dashboard','log','commission','catalog','providers','expenses','breakeven','analytics','projects','kpi']:auth?.role==='va'?['projects']:['dashboard','log','tasks'];
-  const navLabels={'combined':'👥 All Providers','dashboard':'Dashboard','log':'Log','commission':'Commission','catalog':'Catalog','providers':'Providers','expenses':'💰 Expenses','breakeven':'📈 Breakeven','analytics':'📊 Analytics','projects':'📋 Projects','tasks':'📋 My Tasks','kpi':'🎯 KPIs'};
+  const navItems=isAdmin?['combined','dashboard','log','commission','catalog','providers','expenses','breakeven','analytics','projects','kpi']:auth?.role==='va'?['projects']:['dashboard','log','tasks','myprojects'];
+  const navLabels={'combined':'👥 All Providers','dashboard':'Dashboard','log':'Log','commission':'Commission','catalog':'Catalog','providers':'Providers','expenses':'💰 Expenses','breakeven':'📈 Breakeven','analytics':'📊 Analytics','projects':'📋 Projects','tasks':'📋 My Tasks','myprojects':'📁 My Projects','kpi':'🎯 KPIs'};
 
   return(
     <div style={{background:C.bg,minHeight:'100vh',fontFamily:sans,color:C.text}}>
@@ -2937,6 +2937,7 @@ export default function App(){
 
         {view==='expenses'&&isAdmin&&<ExpensesView expenses={expenses} setExpenses={setExpenses} month={month} payroll={payroll} setPayroll={setPayroll} providers={providers} logData={logData} hoursData={hoursData} retailData={retailData} catalog={catalog}/>}
         {view==='projects'&&isAdmin&&<ProjectsView projects={projects} setProjects={setProjects} providers={providers} vaUsers={vaUsers} setVaUsers={setVaUsers} creds={creds} setCreds={setCreds} emailConfig={emailConfig} month={month} setMonth={setMonth}/>}
+        {view==='myprojects'&&auth?.role!=='admin'&&auth?.role!=='va'&&<StaffProjectsView projects={projects} setProjects={setProjects} provId={auth?.providerId} provName={prov?.name}/> }
         {view==='tasks'&&auth?.role!=='admin'&&auth?.role!=='va'&&<TasksView projects={projects} setProjects={setProjects} provId={auth?.providerId} provName={prov?.name} month={month} importantDetails={importantDetails} setImportantDetails={setImportantDetails} emailConfig={emailConfig} providerName={prov?.name} kpiData={kpiData} setKpiData={setKpiData}/>}
         {auth?.role==='va'&&<VAView projects={projects} setProjects={setProjects} auth={auth} vaUsers={vaUsers} setVaUsers={setVaUsers} month={month} importantDetails={importantDetails} setImportantDetails={setImportantDetails} emailConfig={emailConfig}/>}
         {view==='kpi'&&isAdmin&&<KPIView providers={providers} kpiData={kpiData} setKpiData={setKpiData} month={month}/>}
