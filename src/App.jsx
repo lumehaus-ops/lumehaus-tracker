@@ -81,13 +81,13 @@ function calcComm(entries,prov,catalog,hrs,retail){
   const retRev=+retail?.rev||0,retCogs=+retail?.cogs||0;
   const totRev=svcRev+retRev,totCogs=rows.reduce((s,r)=>s+r.cogs,0)+retCogs;
   const totTips=rows.reduce((s,r)=>s+r.tip,0),memCt=rows.filter(r=>r.cat==='membership').length;
-  const memB=memCt*(prov.membershipBonus||10);
-  const retComm=retRev*((prov.retailCommRate||0)/100);
+  const memB=memCt*(prov?.membershipBonus||10||10);
+  const retComm=retRev*((prov?.retailCommRate||0||0)/100);
   const gp=totRev-totCogs;
-  const iT=(prov.injectableTiers||[]).find(t=>injRev<=t.upTo)||{rate:0};
-  const fT=(prov.facialTiers||[]).find(t=>facRev<=t.upTo)||{rate:0};
+  const iT=(prov?.injectableTiers||[]||[]).find(t=>injRev<=t.upTo)||{rate:0};
+  const fT=(prov?.facialTiers||[]||[]).find(t=>facRev<=t.upTo)||{rate:0};
   let basePay=0,injC=0,facC=0,above=0;
-  if(prov.compType==='hourly_goal'){basePay=(+hrs||0)*(+prov.hourlyRate||0);above=Math.max(0,svcRev-(prov.monthlyGoal||0));if(above>0&&svcRev>0){injC=(above*(injRev/svcRev))*(iT.rate/100);facC=(above*(facRev/svcRev))*(fT.rate/100);}}
+  if(prov?.compType==='hourly_goal'){basePay=(+hrs||0)*(+prov?.hourlyRate||0||0);above=Math.max(0,svcRev-(prov?.monthlyGoal||0||0));if(above>0&&svcRev>0){injC=(above*(injRev/svcRev))*(iT.rate/100);facC=(above*(facRev/svcRev))*(fT.rate/100);}}
   else{injC=injRev*(iT.rate/100);facC=facRev*(fT.rate/100);}
   return{totRev,svcRev,injRev,facRev,retRev,totCogs,retCogs,gp,totTips,memCt,memB,retComm,basePay,iT,fT,injC,facC,totC:injC+facC+memB+retComm,totalPay:basePay+injC+facC+memB+retComm,above,hrs:+hrs||0};
 }
@@ -153,7 +153,7 @@ function TierEditor({label,tiers,onUpdate}){
 
 function CombinedView({providers,logData,hoursData,retailData,catalog,month}){
   const ml=new Date(month+'-02').toLocaleString('default',{month:'long',year:'numeric'});
-  const stats=providers.map(p=>{const mk=`${p.id}:${month}`;return{p,c:calcComm(logData[mk]||[],p,catalog,hoursData[mk]||0,retailData[mk]||{})};});
+  const stats=(providers||[]).map(p=>{const mk=`${p.id}:${month}`;return{p,c:calcComm(logData[mk]||[],p,catalog,hoursData[mk]||0,retailData[mk]||{})};});
   const T={rev:stats.reduce((s,x)=>s+x.c.totRev,0),pay:stats.reduce((s,x)=>s+x.c.totalPay,0),cogs:stats.reduce((s,x)=>s+x.c.totCogs,0),gp:stats.reduce((s,x)=>s+x.c.gp,0),tips:stats.reduce((s,x)=>s+x.c.totTips,0)};
   return(
     <div>
@@ -1830,14 +1830,14 @@ function VATimesheet({va,vaId,vaUsers,setVaUsers,month,ml,emailConfig}){
 
 /* ── VA VIEW ── */
 export function VAView({projects,setProjects,auth,vaUsers,setVaUsers,month,importantDetails,setImportantDetails,emailConfig}){
-  const va=vaUsers.find(v=>v.id===auth.vaId)||{name:auth.vaName,hourlyRate:0,hoursLogged:{}};
+  const va=vaUsers.find(v=>v.id===auth?.vaId)||{name:auth?.vaName,hourlyRate:0,hoursLogged:{}};
   const now=new Date();
   const curMonth=month||`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
   const [yr,mo]=curMonth.split('-').map(Number);
   const ml=new Date(curMonth+'-02').toLocaleString('default',{month:'long',year:'numeric'});
 
   const myTasks=projects.flatMap(p=>
-    (p.tasks||[]).filter(t=>t.assignedTo===auth.vaId)
+    (p.tasks||[]).filter(t=>t.assignedTo===auth?.vaId)
     .map(t=>({...t,projectId:p.id,projectTitle:p.title}))
   );
   const open=myTasks.filter(t=>t.status!=='Complete');
@@ -1864,7 +1864,7 @@ export function VAView({projects,setProjects,auth,vaUsers,setVaUsers,month,impor
 
   return(
     <div>
-      <ImportantDetailsBlock personId={auth.vaId} personName={va.name} importantDetails={importantDetails||{}} setImportantDetails={setImportantDetails||(()=>{})}/>
+      <ImportantDetailsBlock personId={auth?.vaId} personName={va.name} importantDetails={importantDetails||{}} setImportantDetails={setImportantDetails||(()=>{})}/>
 
       <div style={cardS()}>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',flexWrap:'wrap',gap:'10px'}}>
@@ -1884,7 +1884,7 @@ export function VAView({projects,setProjects,auth,vaUsers,setVaUsers,month,impor
       </div>
 
       {/* VA DAILY TIMESHEET */}
-      <VATimesheet va={va} vaId={auth.vaId} vaUsers={vaUsers} setVaUsers={setVaUsers} month={curMonth} ml={ml} emailConfig={emailConfig}/>
+      <VATimesheet va={va} vaId={auth?.vaId} vaUsers={vaUsers} setVaUsers={setVaUsers} month={curMonth} ml={ml} emailConfig={emailConfig}/>
 
       <div style={cardS()}>
         <div style={lblS()}>My Tasks — {ml}</div>
@@ -2548,7 +2548,7 @@ export default function App(){
 
   const isAdmin=auth?.role==='admin';
   const prov=providers.find(p=>p.id===(isAdmin?sid:auth?.providerId))||providers[0];
-  const mk=prov?`${prov.id}:${month}`:'none';
+  const mk=prov?`${prov?.id}:${month}`:'none';
   const entries=logData[mk]||[];
   const hrs=hoursData[mk]||0;
   const retail=retailData[mk]||{rev:0,cogs:0};
@@ -2559,8 +2559,8 @@ export default function App(){
   const selSvc=catalog.find(c=>c.id===entry.serviceId)||catalog.find(c=>c.active)||catalog[0]||null;
   const autoCOG=selSvc?cogCalc(selSvc,entry.unitsUsed,entry.vialsUsed):0;
   const ml=new Date(month+'-02').toLocaleString('default',{month:'long',year:'numeric'});
-  const gPct=pct(comm.svcRev,prov.monthlyGoal);
-  const weeks=[1,2,3,4,5].map(w=>({w,rev:entries.filter(e=>wk(e.date)===w).reduce((s,e)=>s+Math.max(0,(+e.retailPrice||0)-(+e.discount||0)),0),cnt:entries.filter(e=>wk(e.date)===w).length}));
+  const gPct=pct(comm.svcRev,prov?.monthlyGoal||0);
+  const weeks=[1,2,3,4,5].map(w=>({w,rev:(entries||[]).filter(e=>wk(e.date)===w).reduce((s,e)=>s+Math.max(0,(+e.retailPrice||0)-(+e.discount||0)),0),cnt:(entries||[]).filter(e=>wk(e.date)===w).length}));
   const maxW=Math.max(...weeks.map(w=>w.rev),1);
 
   const updProv=(id,u)=>setProviders(p=>p.map(x=>x.id===id?{...x,...u}:x));
@@ -2646,7 +2646,7 @@ export default function App(){
       XLSX.utils.book_append_sheet(wb, ws, p.name.slice(0,31));
     });
 
-    XLSX.writeFile(wb, `LumeHaus_${isAdmin?'AllProviders':prov.name.replace(/ /g,'_')}_${month}.xlsx`);
+    XLSX.writeFile(wb, `LumeHaus_${isAdmin?'AllProviders':prov?.name||"".replace(/ /g,'_')}_${month}.xlsx`);
   }
 
   function saveLog(){
@@ -2677,7 +2677,7 @@ export default function App(){
           <span style={{color:C.accentL}}>Lumé Haus</span>
           {isAdmin&&<span style={{fontFamily:sans,fontSize:'10px',fontWeight:700,background:'rgba(255,255,255,0.12)',color:C.accentL,padding:'2px 8px',borderRadius:'999px',marginLeft:'10px'}}>ADMIN</span>}
           {!isAdmin&&auth?.role!=='va'&&<span style={{fontFamily:sans,fontSize:'11px',color:'rgba(255,255,255,0.4)',marginLeft:'10px'}}>Welcome, {prov?.name}</span>}
-          {auth?.role==='va'&&<span style={{fontFamily:sans,fontSize:'11px',color:'rgba(255,255,255,0.4)',marginLeft:'10px'}}>Welcome, {auth.vaName}</span>}
+          {auth?.role==='va'&&<span style={{fontFamily:sans,fontSize:'11px',color:'rgba(255,255,255,0.4)',marginLeft:'10px'}}>Welcome, {auth?.vaName}</span>}
         </div>
         <div style={{display:'flex',gap:'10px',alignItems:'center'}}>
           <div style={{display:'flex',gap:'6px',alignItems:'center',flexWrap:'wrap'}}>
@@ -2705,8 +2705,8 @@ export default function App(){
               </div>
               <div><label style={lblS()}>Client *</label><ClientAutocomplete value={quickEntry.client} onChange={v=>setQuickEntry(p=>({...p,client:v}))} clients={clients}/></div>
               <div><label style={lblS()}>Service *</label>
-                <select value={quickEntry.serviceId} onChange={e=>{const sv=catalog.find(c=>c.id===e.target.value);setQuickEntry(p=>({...p,serviceId:e.target.value,retailPrice:sv?.price||''}));}} style={sel()}>
-                  {catalog.filter(c=>c.active).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+                <select value={quickEntry.serviceId} onChange={e=>{const sv=(catalog||[]).find(c=>c.id===e.target.value);setQuickEntry(p=>({...p,serviceId:e.target.value,retailPrice:sv?.price||''}));}} style={sel()}>
+                  {(catalog||[]).filter(c=>c.active).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
               </div>
               <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'8px'}}>
@@ -2769,7 +2769,7 @@ export default function App(){
         {view==='dashboard'&&auth?.role!=='va'&&(
           <>
             <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(145px,1fr))',gap:'10px',marginBottom:'14px'}}>
-              {[{l:'Total Revenue',v:f0(comm.totRev),s:'Net after discounts'},{l:isAdmin?'Total Pay':'Est. Pay',v:f0(comm.totalPay),s:prov.compType==='hourly_goal'?'Base + commission':'Commission',hi:true},{l:'Total COGs',v:f0(comm.totCogs),s:'Services + retail'},{l:'Gross Profit',v:f0(comm.gp),s:'Revenue − COGs'},{l:'% to Goal',v:`${gPct.toFixed(0)}%`,s:`Goal: ${f0(prov.monthlyGoal)}`},{l:'Tips',v:f0(comm.totTips),s:'Not in commission'}].map((k,i)=>(
+              {[{l:'Total Revenue',v:f0(comm.totRev),s:'Net after discounts'},{l:isAdmin?'Total Pay':'Est. Pay',v:f0(comm.totalPay),s:prov?.compType==='hourly_goal'?'Base + commission':'Commission',hi:true},{l:'Total COGs',v:f0(comm.totCogs),s:'Services + retail'},{l:'Gross Profit',v:f0(comm.gp),s:'Revenue − COGs'},{l:'% to Goal',v:`${gPct.toFixed(0)}%`,s:`Goal: ${f0(prov?.monthlyGoal||0)}`},{l:'Tips',v:f0(comm.totTips),s:'Not in commission'}].map((k,i)=>(
                 <div key={i} style={{background:k.hi?C.navy:C.card,borderRadius:'12px',padding:'14px 15px',boxShadow:C.shadow,border:`1px solid ${k.hi?'transparent':C.border}`}}>
                   <div style={{fontSize:'9px',fontWeight:700,letterSpacing:'0.1em',textTransform:'uppercase',color:k.hi?C.accentL:C.accent,marginBottom:'3px'}}>{k.l}</div>
                   <div style={{fontSize:'21px',fontWeight:300,fontFamily:serif,color:k.hi?'#fff':C.text}}>{k.v}</div>
@@ -2781,24 +2781,24 @@ export default function App(){
             <div style={cardS({padding:'14px 18px'})}>
               <div style={{display:'flex',justifyContent:'space-between',marginBottom:'7px',flexWrap:'wrap',gap:'6px'}}>
                 <div style={{display:'flex',gap:'10px',alignItems:'center',flexWrap:'wrap'}}>
-                  <span style={{fontWeight:700,fontSize:'13px',color:C.navy}}>{prov.name} · {ml}</span>
-                  {prov.hasHourly&&<span style={{fontSize:'10px',padding:'2px 9px',borderRadius:'999px',background:prov.compType==='hourly_goal'?C.accentBg:C.successBg,color:prov.compType==='hourly_goal'?C.accent:C.success,fontWeight:700}}>{prov.compType==='hourly_goal'?'Mode A: Hourly + Goal':'Mode B: Commission First'}</span>}
+                  <span style={{fontWeight:700,fontSize:'13px',color:C.navy}}>{prov?.name||""} · {ml}</span>
+                  {prov?.hasHourly&&<span style={{fontSize:'10px',padding:'2px 9px',borderRadius:'999px',background:prov?.compType==='hourly_goal'?C.accentBg:C.successBg,color:prov?.compType==='hourly_goal'?C.accent:C.success,fontWeight:700}}>{prov?.compType==='hourly_goal'?'Mode A: Hourly + Goal':'Mode B: Commission First'}</span>}
                 </div>
-                <span style={{fontWeight:700,color:C.navy}}>{f0(comm.svcRev)} / {f0(prov.monthlyGoal)}</span>
+                <span style={{fontWeight:700,color:C.navy}}>{f0(comm.svcRev)} / {f0(prov?.monthlyGoal||0)}</span>
               </div>
-              <div style={{background:C.bg,borderRadius:'999px',height:'10px',overflow:'hidden'}}><div style={{height:'100%',borderRadius:'999px',width:`${gPct}%`,background:gPct>=100?C.success:gPct>=70?prov.color:C.warn,transition:'width 0.5s'}}/></div>
+              <div style={{background:C.bg,borderRadius:'999px',height:'10px',overflow:'hidden'}}><div style={{height:'100%',borderRadius:'999px',width:`${gPct}%`,background:gPct>=100?C.success:gPct>=70?prov?.color||C.accent:C.warn,transition:'width 0.5s'}}/></div>
               {gPct>=100&&<div style={{fontSize:'11px',color:C.success,marginTop:'5px',fontWeight:700}}>🎉 Monthly goal reached!</div>}
-              {prov.hasHourly&&prov.compType==='hourly_goal'&&comm.above>0&&<div style={{fontSize:'11px',color:C.success,marginTop:'5px'}}>✓ {f0(comm.above)} above goal — commission active on overage</div>}
-              {prov.hasHourly&&prov.compType==='hourly_goal'&&!comm.above&&comm.svcRev>0&&<div style={{fontSize:'11px',color:C.warn,marginTop:'5px'}}>⏳ {f0((prov.monthlyGoal||0)-comm.svcRev)} away from goal — commission activates then</div>}
+              {prov?.hasHourly&&prov?.compType==='hourly_goal'&&comm.above>0&&<div style={{fontSize:'11px',color:C.success,marginTop:'5px'}}>✓ {f0(comm.above)} above goal — commission active on overage</div>}
+              {prov?.hasHourly&&prov?.compType==='hourly_goal'&&!comm.above&&comm.svcRev>0&&<div style={{fontSize:'11px',color:C.warn,marginTop:'5px'}}>⏳ {f0((prov?.monthlyGoal||0||0)-comm.svcRev)} away from goal — commission activates then</div>}
             </div>
             {/* HOURLY (admin, Mode A) */}
-            {isAdmin&&prov.hasHourly&&prov.compType==='hourly_goal'&&(
+            {isAdmin&&prov?.hasHourly&&prov?.compType==='hourly_goal'&&(
               <div style={cardS({padding:'14px 18px'})}>
                 <label style={lblS()}>Hours Worked — {ml}</label>
                 <div style={{fontSize:'10px',color:C.muted,marginBottom:'10px'}}>Base Pay = Hourly Rate × Hours. Commission only activates on service revenue above goal.</div>
                 <div style={{display:'flex',gap:'16px',alignItems:'flex-end',flexWrap:'wrap'}}>
                   <div><label style={lblS()}>Hours This Month</label><input type="number" value={hrs||''} placeholder="0" onChange={e=>setHrs(e.target.value)} style={inp({width:'110px'})}/></div>
-                  <div style={{paddingBottom:'8px',fontSize:'12px',color:C.muted}}>× ${prov.hourlyRate}/hr</div>
+                  <div style={{paddingBottom:'8px',fontSize:'12px',color:C.muted}}>× ${prov?.hourlyRate||0}/hr</div>
                   <div style={{paddingBottom:'4px'}}><div style={lblS()}>Base Pay</div><div style={{fontSize:'24px',fontWeight:300,fontFamily:serif,color:C.navy}}>{f0(comm.basePay)}</div></div>
                 </div>
               </div>
@@ -2862,7 +2862,7 @@ export default function App(){
         {view==='log'&&auth?.role!=='va'&&(
           <div style={cardS()}>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'12px'}}>
-              <div><div style={lblS()}>Service Log — {prov.name} · {ml}</div><div style={{fontSize:'10px',color:C.muted}}>Net = Retail − Discount. COGs auto-fill from catalog.</div></div>
+              <div><div style={lblS()}>Service Log — {prov?.name||""} · {ml}</div><div style={{fontSize:'10px',color:C.muted}}>Net = Retail − Discount. COGs auto-fill from catalog.</div></div>
               <button style={Btn('primary')} onClick={()=>setLogOpen(!logOpen)}>{logOpen?'✕ Cancel':'+ Add Service'}</button>
             </div>
             {logOpen&&(
@@ -2938,20 +2938,20 @@ export default function App(){
         {/* ── COMMISSION (admin) ── */}
         {view==='commission'&&isAdmin&&(
           <>
-            {prov.hasHourly&&(
+            {prov?.hasHourly&&(
               <div style={cardS()}>
-                <div style={lblS()}>Compensation Mode — {prov.name}</div>
+                <div style={lblS()}>Compensation Mode — {prov?.name||""}</div>
                 <div style={{fontSize:'10px',color:C.muted,marginBottom:'12px'}}>Toggle anytime — updates all calculations instantly.</div>
                 <div style={{display:'flex',gap:'10px',flexWrap:'wrap'}}>
-                  {[{k:'hourly_goal',l:'Mode A: Hourly + Goal Commission',d:`$${prov.hourlyRate}/hr base. Commission only on revenue above goal.`},{k:'commission_first',l:'Mode B: Commission First',d:'No hourly. Commission applies from $0 by category.'}].map(m=>(
-                    <button key={m.k} onClick={()=>updProv(prov.id,{compType:m.k})} style={{...Btn(prov.compType===m.k?'primary':'secondary'),display:'flex',flexDirection:'column',alignItems:'flex-start',padding:'12px 18px',gap:'3px',flex:1,minWidth:'200px',textAlign:'left'}}>
+                  {[{k:'hourly_goal',l:'Mode A: Hourly + Goal Commission',d:`$${prov?.hourlyRate||0}/hr base. Commission only on revenue above goal.`},{k:'commission_first',l:'Mode B: Commission First',d:'No hourly. Commission applies from $0 by category.'}].map(m=>(
+                    <button key={m.k} onClick={()=>updProv(prov?.id,{compType:m.k})} style={{...Btn(prov?.compType===m.k?'primary':'secondary'),display:'flex',flexDirection:'column',alignItems:'flex-start',padding:'12px 18px',gap:'3px',flex:1,minWidth:'200px',textAlign:'left'}}>
                       <span>{m.l}</span><span style={{fontSize:'10px',fontWeight:400,opacity:0.6}}>{m.d}</span>
                     </button>
                   ))}
                 </div>
-                {prov.compType==='hourly_goal'&&(
+                {prov?.compType==='hourly_goal'&&(
                   <div style={{display:'flex',gap:'14px',alignItems:'flex-end',marginTop:'14px',flexWrap:'wrap'}}>
-                    <div><label style={lblS()}>Hourly Rate</label><input type="number" value={prov.hourlyRate} onChange={e=>updProv(prov.id,{hourlyRate:+e.target.value||0})} style={inp({width:'100px'})}/></div>
+                    <div><label style={lblS()}>Hourly Rate</label><input type="number" value={prov?.hourlyRate||0} onChange={e=>updProv(prov?.id,{hourlyRate:+e.target.value||0})} style={inp({width:'100px'})}/></div>
                     <div><label style={lblS()}>Hours This Month</label><input type="number" value={hrs||''} placeholder="0" onChange={e=>setHrs(e.target.value)} style={inp({width:'100px'})}/></div>
                     <div style={{paddingBottom:'8px'}}>Base Pay: <strong style={{color:C.navy,fontSize:'15px'}}>{f0(comm.basePay)}</strong></div>
                   </div>
@@ -2959,24 +2959,24 @@ export default function App(){
               </div>
             )}
             <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(148px,1fr))',gap:'10px',marginBottom:'14px'}}>
-              {prov.compType==='hourly_goal'&&<div style={cardS({marginBottom:0})}><div style={lblS()}>Base Pay</div><div style={{fontSize:'22px',fontWeight:300,fontFamily:serif,color:C.navy}}>{f0(comm.basePay)}</div><div style={{fontSize:'10px',color:C.muted}}>${prov.hourlyRate}/hr × {comm.hrs} hrs</div></div>}
+              {prov?.compType==='hourly_goal'&&<div style={cardS({marginBottom:0})}><div style={lblS()}>Base Pay</div><div style={{fontSize:'22px',fontWeight:300,fontFamily:serif,color:C.navy}}>{f0(comm.basePay)}</div><div style={{fontSize:'10px',color:C.muted}}>${prov?.hourlyRate||0}/hr × {comm.hrs} hrs</div></div>}
               <div style={cardS({marginBottom:0})}><div style={lblS()}>Injectable Comm</div><div style={{fontSize:'22px',fontWeight:300,fontFamily:serif,color:C.navy}}>{f0(comm.injC)}</div><div style={{fontSize:'10px',color:C.muted}}>{f0(comm.injRev)} · {comm.iT.rate}% tier</div></div>
               <div style={cardS({marginBottom:0})}><div style={lblS()}>Facial Comm</div><div style={{fontSize:'22px',fontWeight:300,fontFamily:serif,color:C.navy}}>{f0(comm.facC)}</div><div style={{fontSize:'10px',color:C.muted}}>{f0(comm.facRev)} · {comm.fT.rate}% tier</div></div>
-              <div style={cardS({marginBottom:0})}><div style={lblS()}>Membership Bonuses</div><div style={{fontSize:'22px',fontWeight:300,fontFamily:serif,color:C.navy}}>{f0(comm.memB)}</div><div style={{fontSize:'10px',color:C.muted}}>{comm.memCt} × ${prov.membershipBonus}</div></div>
-              <div style={cardS({marginBottom:0})}><div style={lblS()}>Retail Commission</div><div style={{fontSize:'22px',fontWeight:300,fontFamily:serif,color:C.navy}}>{f0(comm.retComm)}</div><div style={{fontSize:'10px',color:C.muted}}>{f0(comm.retRev)} × {prov.retailCommRate||0}%</div></div>
+              <div style={cardS({marginBottom:0})}><div style={lblS()}>Membership Bonuses</div><div style={{fontSize:'22px',fontWeight:300,fontFamily:serif,color:C.navy}}>{f0(comm.memB)}</div><div style={{fontSize:'10px',color:C.muted}}>{comm.memCt} × ${prov?.membershipBonus||10}</div></div>
+              <div style={cardS({marginBottom:0})}><div style={lblS()}>Retail Commission</div><div style={{fontSize:'22px',fontWeight:300,fontFamily:serif,color:C.navy}}>{f0(comm.retComm)}</div><div style={{fontSize:'10px',color:C.muted}}>{f0(comm.retRev)} × {prov?.retailCommRate||0||0}%</div></div>
               <div style={{...cardS({marginBottom:0}),background:C.navy}}><div style={{...lblS(),color:C.accentL}}>Total Pay</div><div style={{fontSize:'26px',fontWeight:300,fontFamily:serif,color:'#fff'}}>{f0(comm.totalPay)}</div></div>
             </div>
             <div style={{marginBottom:'14px'}}>
               <button onClick={()=>{
-                const breakdown=`Injectable Revenue: ${f0(comm.injRev)} x ${comm.iT.rate}% = ${f0(comm.injC)}\nFacial Revenue: ${f0(comm.facRev)} x ${comm.fT.rate}% = ${f0(comm.facC)}\nRetail Commission: ${f0(comm.retComm)}\nMembership Bonuses: ${f0(comm.memB)}${prov.compType==='hourly_goal'?`\nBase Pay: $${prov.hourlyRate}/hr x ${comm.hrs} hrs = ${f0(comm.basePay)}`:''}\n\nTOTAL PAY: ${f0(comm.totalPay)}`;
+                const breakdown=`Injectable Revenue: ${f0(comm.injRev)} x ${comm.iT.rate}% = ${f0(comm.injC)}\nFacial Revenue: ${f0(comm.facRev)} x ${comm.fT.rate}% = ${f0(comm.facC)}\nRetail Commission: ${f0(comm.retComm)}\nMembership Bonuses: ${f0(comm.memB)}${prov?.compType==='hourly_goal'?`\nBase Pay: $${prov?.hourlyRate||0}/hr x ${comm.hrs} hrs = ${f0(comm.basePay)}`:''}\n\nTOTAL PAY: ${f0(comm.totalPay)}`;
                 const win=window.open('','_blank');
-                win.document.write(`<html><head><title>Payroll — ${prov.name} — ${ml}</title><style>body{font-family:sans-serif;padding:40px;max-width:600px;margin:0 auto}h1{font-size:24px;font-weight:300}table{width:100%;border-collapse:collapse;margin:16px 0}td{padding:8px;border-bottom:1px solid #eee}td:last-child{text-align:right;font-weight:600}.total{font-size:18px;font-weight:700;color:#253649}</style></head><body><h1>Payroll Summary</h1><p><strong>${prov.name}</strong> · ${prov.role} · ${ml}</p><table>${breakdown.split('\n').map(l=>`<tr><td colspan="2">${l}</td></tr>`).join('')}</table><p class="total">TOTAL PAY: ${f0(comm.totalPay)}</p><p style="color:#999;font-size:12px;margin-top:40px">Lumé Haus by CornerstoneMD · Dr. Louis Gilbert, MD</p></body></html>`);
+                win.document.write(`<html><head><title>Payroll — ${prov?.name||""} — ${ml}</title><style>body{font-family:sans-serif;padding:40px;max-width:600px;margin:0 auto}h1{font-size:24px;font-weight:300}table{width:100%;border-collapse:collapse;margin:16px 0}td{padding:8px;border-bottom:1px solid #eee}td:last-child{text-align:right;font-weight:600}.total{font-size:18px;font-weight:700;color:#253649}</style></head><body><h1>Payroll Summary</h1><p><strong>${prov?.name||""}</strong> · ${prov?.role||""} · ${ml}</p><table>${breakdown.split('\n').map(l=>`<tr><td colspan="2">${l}</td></tr>`).join('')}</table><p class="total">TOTAL PAY: ${f0(comm.totalPay)}</p><p style="color:#999;font-size:12px;margin-top:40px">Lumé Haus by CornerstoneMD · Dr. Louis Gilbert, MD</p></body></html>`);
                 win.document.close();win.print();
               }} style={Btn('secondary',{padding:'8px 18px',fontSize:'11px'})}>🖨️ Print / Save Payroll Summary</button>
             </div>
             <div style={cardS()}>
               <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'20px'}}>
-                {[{l:'💉 Injectable Tiers',tiers:prov.injectableTiers||[],aR:comm.iT.rate,rev:comm.injRev,key:'injectableTiers'},{l:'✨ Facial Tiers',tiers:prov.facialTiers||[],aR:comm.fT.rate,rev:comm.facRev,key:'facialTiers'}].map(cat=>(
+                {[{l:'💉 Injectable Tiers',tiers:prov?.injectableTiers||[]||[],aR:comm.iT.rate,rev:comm.injRev,key:'injectableTiers'},{l:'✨ Facial Tiers',tiers:prov?.facialTiers||[]||[],aR:comm.fT.rate,rev:comm.facRev,key:'facialTiers'}].map(cat=>(
                   <div key={cat.l}>
                     <div style={{fontSize:'9px',fontWeight:700,letterSpacing:'0.08em',textTransform:'uppercase',color:C.accent,marginBottom:'6px'}}>{cat.l} — Current: {f0(cat.rev)}</div>
                     {cat.tiers.map((t,i)=>{const from=i===0?0:(cat.tiers[i-1].upTo+1);const curr=cat.aR===t.rate&&cat.rev>0;return(
@@ -2992,7 +2992,7 @@ export default function App(){
                 ))}
               </div>
               <div style={{marginTop:'14px',padding:'10px 14px',background:C.warnBg,borderRadius:'8px',fontSize:'10px',color:C.warn}}>
-                💡 Tips ({f0(comm.totTips)}) are tracked but NOT included in commission. · Retail commission = Retail Revenue × {prov.retailCommRate||0}% = {f0(comm.retComm)}
+                💡 Tips ({f0(comm.totTips)}) are tracked but NOT included in commission. · Retail commission = Retail Revenue × {prov?.retailCommRate||0||0}% = {f0(comm.retComm)}
               </div>
             </div>
           </>
