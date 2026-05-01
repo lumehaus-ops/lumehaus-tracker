@@ -537,7 +537,7 @@ function AnalyticsView({expenses,payroll,providers,logData,hoursData,retailData,
     <div>
       {/* TAB NAV */}
       <div style={{display:'flex',gap:'4px',background:C.card,borderRadius:'10px',padding:'4px',marginBottom:'16px',width:'fit-content',border:`1px solid ${C.border}`,boxShadow:C.shadow}}>
-        {[['pl','📋 P&L Statement'],['growth','📈 Growth Trends'],['kpi','🎯 KPIs']].map(([t,l])=>(
+        {[['pl','📋 P&L Statement'],['growth','📈 Growth Trends']].map(([t,l])=>(
           <button key={t} onClick={()=>setTab(t)} style={{padding:'7px 18px',borderRadius:'7px',border:'none',cursor:'pointer',background:tab===t?C.navy:'transparent',color:tab===t?'#fff':C.muted,fontFamily:sans,fontSize:'12px',fontWeight:600}}>
             {l}
           </button>
@@ -680,90 +680,7 @@ function AnalyticsView({expenses,payroll,providers,logData,hoursData,retailData,
       )}
 
       {/* ── KPIs ── */}
-      {tab==='kpi'&&(
-        <>
-          {/* KPI CARDS */}
-          <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(160px,1fr))',gap:'10px',marginBottom:'14px'}}>
-            {[
-              {l:'Avg Ticket Size',v:f2(avgTicket),s:'Revenue per service',eq:'Service Rev ÷ # Services'},
-              {l:'Total Services',v:curEntries.length,s:`${ml}`,eq:'All logged entries'},
-              {l:'Unique Clients',v:uniqueClients,s:`${ml}`,eq:'Distinct client names'},
-              {l:'Avg Revenue / Client',v:uniqueClients>0?f2(cur.svcRev/uniqueClients):'—',s:'Service rev per client',eq:'Service Rev ÷ Unique Clients'},
-              {l:'Busiest Week',v:`Week ${busiestWeek?.w||'—'}`,s:busiestWeek?.rev>0?f0(busiestWeek.rev):'No data',eq:'Highest revenue week'},
-              {l:'Gross Margin',v:cur.totRev>0?`${((cur.grossProfit/cur.totRev)*100).toFixed(1)}%`:'—',s:'After COGs',eq:'Gross Profit ÷ Revenue'},
-            ].map((k,i)=>(
-              <div key={i} style={cardS({marginBottom:0})}>
-                <div style={lblS()}>{k.l}</div>
-                <div style={{fontSize:'22px',fontWeight:300,fontFamily:serif,color:C.navy}}>{k.v}</div>
-                <div style={{fontSize:'10px',color:C.muted,marginTop:'2px'}}>{k.s}</div>
-                <div style={{fontSize:'8px',color:C.border,marginTop:'1px',fontFamily:'monospace'}}>{k.eq}</div>
-              </div>
-            ))}
-          </div>
 
-          {/* REVENUE BY PROVIDER */}
-          <div style={cardS()}>
-            <div style={lblS()}>Revenue by Provider — {ml}</div>
-            <div style={{fontSize:'10px',color:C.muted,marginBottom:'14px'}}>Breakdown of each provider's contribution to total revenue this month.</div>
-            {provStats.filter(p=>p.rev>0).length===0
-              ?<div style={{color:C.muted,fontSize:'12px',textAlign:'center',padding:'20px'}}>No data for {ml}</div>
-              :provStats.map(p=>{
-                const pct2=cur.totRev>0?((p.rev/cur.totRev)*100).toFixed(1):0;
-                return(
-                  <div key={p.name} style={{marginBottom:'12px'}}>
-                    <div style={{display:'flex',justifyContent:'space-between',marginBottom:'4px'}}>
-                      <div style={{display:'flex',gap:'8px',alignItems:'center'}}>
-                        <div style={{width:'10px',height:'10px',borderRadius:'50%',background:p.color}}/>
-                        <span style={{fontWeight:600,fontSize:'12px',color:C.navy}}>{p.name}</span>
-                        <span style={{fontSize:'10px',color:C.muted}}>{p.sessions} services · avg {f2(p.avg)}/visit</span>
-                      </div>
-                      <span style={{fontWeight:700,fontSize:'12px',color:C.navy}}>{f0(p.rev)} <span style={{color:C.muted,fontWeight:400,fontSize:'10px'}}>({pct2}%)</span></span>
-                    </div>
-                    <div style={{background:C.bg,borderRadius:'999px',height:'8px',overflow:'hidden'}}>
-                      <div style={{height:'100%',borderRadius:'999px',width:`${pct2}%`,background:p.color,transition:'width 0.5s'}}/>
-                    </div>
-                  </div>
-                );
-              })
-            }
-          </div>
-
-          {/* TOP SERVICES */}
-          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'14px'}}>
-            {[
-              {title:'Top Services by Revenue',data:topByRev,fmt:(v)=>f0(v),suffix:''},
-              {title:'Top Services by Volume',data:topByCnt,fmt:(v)=>v,suffix:' sessions'},
-            ].map(({title,data,fmt,suffix})=>(
-              <div key={title} style={cardS({marginBottom:0})}>
-                <div style={lblS()}>{title} — {ml}</div>
-                {data.length===0
-                  ?<div style={{color:C.muted,fontSize:'12px',textAlign:'center',padding:'16px'}}>No data</div>
-                  :data.map(([name,val],i)=>{
-                    const maxVal=data[0][1];
-                    const pct2=maxVal>0?((val/maxVal)*100):0;
-                    const catS=catalog.find(c=>c.name===name);
-                    return(
-                      <div key={name} style={{marginBottom:'10px'}}>
-                        <div style={{display:'flex',justifyContent:'space-between',marginBottom:'3px',alignItems:'center'}}>
-                          <div style={{display:'flex',gap:'6px',alignItems:'center'}}>
-                            <span style={{fontSize:'11px',fontWeight:700,color:C.muted}}>#{i+1}</span>
-                            {catS&&<span style={{...badge(catS.cat),fontSize:'8px'}}>{catS.cat}</span>}
-                            <span style={{fontSize:'11px',fontWeight:600,color:C.text}}>{name}</span>
-                          </div>
-                          <span style={{fontSize:'11px',fontWeight:700,color:C.navy}}>{fmt(val)}{suffix}</span>
-                        </div>
-                        <div style={{background:C.bg,borderRadius:'999px',height:'5px',overflow:'hidden'}}>
-                          <div style={{height:'100%',borderRadius:'999px',width:`${pct2}%`,background:C.accent}}/>
-                        </div>
-                      </div>
-                    );
-                  })
-                }
-              </div>
-            ))}
-          </div>
-        </>
-      )}
     </div>
   );
 }
@@ -2074,10 +1991,26 @@ function ProviderTaskView({projects,setProjects,provId,provName,month}){
   const today=now.toISOString().split('T')[0];
   const[yr,mo]=month.split('-').map(Number);
 
+  const dayOfWeekP=now.getDay();
   const allMyTasks=projects.flatMap(p=>
-    (p.tasks||[]).filter(t=>t.assignedTo===provId||p.assignedTo?.includes(provId))
+    (p.tasks||[]).filter(t=>{
+      const isAssigned=t.assignedTo===provId||p.assignedTo?.includes(provId);
+      if(!isAssigned)return false;
+      if(t.status==='Complete'&&(!t.repeat||t.repeat==='none'))return false;
+      if(!t.repeat||t.repeat==='none')return true;
+      if(t.repeat==='daily')return true;
+      if(t.repeat==='weekly'){
+        if(!t.dueDate)return dayOfWeekP===1;
+        return dayOfWeekP===new Date(t.dueDate+'T12:00:00').getDay();
+      }
+      if(t.repeat==='monthly'){
+        if(!t.dueDate)return now.getDate()===1;
+        return now.getDate()===parseInt(t.dueDate.split('-')[2]);
+      }
+      return true;
+    })
     .map(t=>({...t,projectId:p.id,projectTitle:p.title}))
-  ).filter(t=>t.status!=='Complete');
+  );
 
   // Daily: tasks due today or no due date
   const dailyTasks=allMyTasks.filter(t=>!t.dueDate||t.dueDate===today);
