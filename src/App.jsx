@@ -2263,8 +2263,117 @@ function ProviderKPIView({provId,provName,kpiData,setKpiData}){
 }
 
 
+
+
+/* ─── STAFF ADD TASK INLINE ─────────────────────────────── */
+function StaffAddTaskInline({proj,setProjects,provId}){
+  const[open,setOpen]=useState(false);
+  const[form,setForm]=useState({title:'',dueDate:'',notes:''});
+  const uid3=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+
+  function save(){
+    if(!form.title)return;
+    const task={id:uid3(),title:form.title,status:'Not Started',assignedTo:provId,notes:form.notes,dueDate:form.dueDate,repeat:'none'};
+    setProjects(p=>p.map(x=>x.id===proj.id?{...x,tasks:[...(x.tasks||[]),task]}:x));
+    setForm({title:'',dueDate:'',notes:''});setOpen(false);
+  }
+
+  return(
+    <div style={{marginBottom:'10px'}}>
+      {!open
+        ?<button onClick={()=>setOpen(true)} style={Btn('secondary',{padding:'5px 14px',fontSize:'10px',marginBottom:'6px'})}>+ Add Task to This Project</button>
+        :<div style={{background:C.accentBg,borderRadius:'8px',padding:'12px',border:`1px solid ${C.accent}44`,marginBottom:'8px'}}>
+          <div style={{display:'grid',gridTemplateColumns:'2fr 1fr',gap:'8px',marginBottom:'8px'}}>
+            <div><label style={lblS()}>Task *</label><input value={form.title} onChange={e=>setForm(p=>({...p,title:e.target.value}))} placeholder="What needs to be done?" style={inp()}/></div>
+            <div><label style={lblS()}>Due Date</label><input type="date" value={form.dueDate} onChange={e=>setForm(p=>({...p,dueDate:e.target.value}))} style={inp()}/></div>
+            <div style={{gridColumn:'1/-1'}}><label style={lblS()}>Notes</label><input value={form.notes} onChange={e=>setForm(p=>({...p,notes:e.target.value}))} placeholder="Optional" style={inp()}/></div>
+          </div>
+          <div style={{display:'flex',gap:'8px'}}>
+            <button onClick={save} style={Btn('primary',{padding:'6px 16px',fontSize:'11px'})}>✓ Add Task</button>
+            <button onClick={()=>setOpen(false)} style={Btn('secondary',{padding:'6px 12px',fontSize:'11px'})}>Cancel</button>
+          </div>
+        </div>
+      }
+    </div>
+  );
+}
+
+/* ─── STAFF ADD PROJECT ─────────────────────────────────── */
+function StaffAddProject({projects,setProjects,provId,provName}){
+  const[open,setOpen]=useState(false);
+  const[addingTaskTo,setAddingTaskTo]=useState(null);
+  const uid2=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+  const blankP=()=>({id:uid2(),title:'',description:'',assignedTo:[provId],dueDate:'',priority:'Medium',status:'Not Started',tasks:[],notes:[],createdAt:new Date().toISOString().split('T')[0],createdBy:provName,hoursLogged:{}});
+  const blankT=()=>({id:uid2(),title:'',status:'Not Started',assignedTo:provId,notes:'',dueDate:'',repeat:'none'});
+  const[form,setForm]=useState(blankP());
+  const[taskForm,setTaskForm]=useState(blankT());
+
+  function saveProject(){
+    if(!form.title)return;
+    setProjects(p=>[...p,{...form,id:uid2()}]);
+    setForm(blankP());setOpen(false);
+  }
+  function addTask(){
+    if(!taskForm.title)return;
+    setForm(p=>({...p,tasks:[...(p.tasks||[]),{...taskForm,id:uid2()}]}));
+    setTaskForm(blankT());setAddingTaskTo(null);
+  }
+
+  return(
+    <div style={{marginBottom:'14px'}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:open?'12px':'0'}}>
+        <div style={{fontSize:'10px',color:C.muted}}>You can create projects visible to your admin.</div>
+        <button style={Btn('primary',{padding:'7px 16px',fontSize:'11px'})} onClick={()=>setOpen(!open)}>{open?'✕ Cancel':'+ New Project'}</button>
+      </div>
+
+      {open&&(
+        <div style={{background:C.bg,borderRadius:'10px',padding:'16px',border:`2px solid ${C.accent}44`,marginBottom:'4px'}}>
+          <div style={{fontSize:'9px',fontWeight:700,letterSpacing:'0.1em',textTransform:'uppercase',color:C.accent,marginBottom:'12px'}}>New Project</div>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(140px,1fr))',gap:'10px',marginBottom:'14px'}}>
+            <div style={{gridColumn:'span 2'}}><label style={lblS()}>Project Title *</label><input value={form.title} onChange={e=>setForm(p=>({...p,title:e.target.value}))} placeholder="What needs to get done?" style={inp()}/></div>
+            <div style={{gridColumn:'span 2'}}><label style={lblS()}>Description</label><input value={form.description} onChange={e=>setForm(p=>({...p,description:e.target.value}))} placeholder="More details..." style={inp()}/></div>
+            <div><label style={lblS()}>Priority</label>
+              <select value={form.priority} onChange={e=>setForm(p=>({...p,priority:e.target.value}))} style={sel()}>
+                {['Low','Medium','High','Urgent'].map(o=><option key={o}>{o}</option>)}
+              </select>
+            </div>
+            <div><label style={lblS()}>Due Date</label><input type="date" value={form.dueDate} onChange={e=>setForm(p=>({...p,dueDate:e.target.value}))} style={inp()}/></div>
+          </div>
+
+          {/* TASKS */}
+          <div style={{background:C.card,borderRadius:'8px',padding:'12px',marginBottom:'12px',border:`1px solid ${C.border}`}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'8px'}}>
+              <div style={{fontSize:'9px',fontWeight:700,textTransform:'uppercase',letterSpacing:'0.08em',color:C.accent}}>Tasks ({form.tasks?.length||0})</div>
+              <button onClick={()=>setAddingTaskTo(addingTaskTo?null:'new')} style={Btn('secondary',{padding:'4px 12px',fontSize:'10px'})}>+ Add Task</button>
+            </div>
+            {addingTaskTo&&(
+              <div style={{display:'grid',gridTemplateColumns:'2fr 1fr auto',gap:'8px',marginBottom:'8px',alignItems:'end'}}>
+                <div><label style={lblS()}>Task *</label><input value={taskForm.title} onChange={e=>setTaskForm(p=>({...p,title:e.target.value}))} placeholder="Task description" style={inp()}/></div>
+                <div><label style={lblS()}>Due Date</label><input type="date" value={taskForm.dueDate} onChange={e=>setTaskForm(p=>({...p,dueDate:e.target.value}))} style={inp()}/></div>
+                <button onClick={addTask} style={{...Btn('primary',{padding:'8px 14px'}),alignSelf:'flex-end'}}>Add</button>
+              </div>
+            )}
+            {(form.tasks||[]).map((t,i)=>(
+              <div key={t.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'6px 8px',borderRadius:'6px',background:C.bg,marginBottom:'4px',fontSize:'11px'}}>
+                <span style={{color:C.text,fontWeight:600}}>{t.title}</span>
+                <div style={{display:'flex',gap:'8px',alignItems:'center'}}>
+                  {t.dueDate&&<span style={{fontSize:'9px',color:C.muted}}>📅 {t.dueDate}</span>}
+                  <button onClick={()=>setForm(p=>({...p,tasks:p.tasks.filter((_,j)=>j!==i)}))} style={{background:'none',border:'none',color:C.muted,cursor:'pointer',fontSize:'13px'}}>✕</button>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div style={{fontSize:'10px',color:C.muted,marginBottom:'10px'}}>📌 This project will be visible to your admin immediately after saving.</div>
+          <button style={Btn('primary')} onClick={saveProject}>✓ Create Project</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ─── STAFF PROJECTS VIEW ───────────────────────────────── */
-function StaffProjectsView({projects,setProjects,provId,provName}){
+function StaffProjectsView({projects,setProjects,provId,provName,catalog,clients,month}){
   const[expandId,setExpandId]=useState(null);
   const[filter,setFilter]=useState('All');
 
@@ -2303,6 +2412,9 @@ function StaffProjectsView({projects,setProjects,provId,provName}){
           </div>
         ))}
       </div>
+
+      {/* ADD PROJECT */}
+      <StaffAddProject projects={projects} setProjects={setProjects} provId={provId} provName={provName}/>
 
       {/* FILTER */}
       <div style={{display:'flex',gap:'6px',flexWrap:'wrap',marginBottom:'14px'}}>
@@ -2416,6 +2528,11 @@ function StaffProjectsView({projects,setProjects,provId,provName}){
                             </div>
                           ))}
                         </div>
+                      )}
+
+                      {/* ADD TASK BUTTON for staff on projects they created */}
+                      {(proj.createdBy===provName||proj.assignedTo?.includes(provId))&&(
+                        <StaffAddTaskInline proj={proj} setProjects={setProjects} provId={provId}/>
                       )}
 
                       {/* OTHER TASKS (not assigned to this provider) — view only */}
@@ -3248,7 +3365,7 @@ export default function App(){
 
         {view==='expenses'&&isAdmin&&<ExpensesView expenses={expenses} setExpenses={setExpenses} month={month} payroll={payroll} setPayroll={setPayroll} providers={providers} logData={logData} hoursData={hoursData} retailData={retailData} catalog={catalog}/>}
         {view==='projects'&&isAdmin&&<ProjectsView projects={projects} setProjects={setProjects} providers={providers} vaUsers={vaUsers} setVaUsers={setVaUsers} creds={creds} setCreds={setCreds} emailConfig={emailConfig} month={month} setMonth={setMonth}/>}
-        {view==='myprojects'&&auth?.role!=='admin'&&auth?.role!=='va'&&<StaffProjectsView projects={projects} setProjects={setProjects} provId={auth?.providerId} provName={prov?.name}/> }
+        {view==='myprojects'&&auth?.role!=='admin'&&auth?.role!=='va'&&<StaffProjectsView projects={projects} setProjects={setProjects} provId={auth?.providerId} provName={prov?.name} catalog={catalog} clients={clients} month={month}/> }
         {view==='tasks'&&auth?.role!=='admin'&&auth?.role!=='va'&&<TasksView projects={projects} setProjects={setProjects} provId={auth?.providerId} provName={prov?.name} month={month} importantDetails={importantDetails} setImportantDetails={setImportantDetails} emailConfig={emailConfig} providerName={prov?.name} kpiData={kpiData} setKpiData={setKpiData}/>}
         {auth?.role==='va'&&<VAView projects={projects} setProjects={setProjects} auth={auth} vaUsers={vaUsers} setVaUsers={setVaUsers} month={month} importantDetails={importantDetails} setImportantDetails={setImportantDetails} emailConfig={emailConfig}/>}
         {view==='kpi'&&isAdmin&&<KPIView providers={providers} kpiData={kpiData} setKpiData={setKpiData} month={month}/>}
