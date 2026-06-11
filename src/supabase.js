@@ -13,8 +13,11 @@ export async function dbGet(key) {
       .select('value')
       .eq('key', key)
       .single()
+    // 406 = no rows found (PGRST116) - not an error, just empty
+    if (error && error.code !== 'PGRST116') {
+      console.warn('Supabase read error for', key, error.code)
+    }
     if (!error && data) {
-      // Sync to localStorage as backup
       try { localStorage.setItem(key, data.value); } catch(e) {}
       return data.value
     }
