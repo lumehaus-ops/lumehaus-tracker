@@ -941,6 +941,90 @@ export function StaffProjectsView({projects,setProjects,provId,provName}){
 }
 
 
+
+/* ── VA PROJECT HOURS ────────────────────────────────────── */
+function VAProjectHours({projects,setProjects,vaId}){
+  const[hoursInput,setHoursInput]=useState({});
+  const[expanded,setExpanded]=useState({});
+
+  // Get projects this VA has tasks in
+  const myProjects=(projects||[]).filter(p=>
+    (p?.tasks||[]).some(t=>t.assignedTo===vaId)
+  );
+
+  if(myProjects.length===0)return null;
+
+  function addProjectHours(projId,hrs){
+    if(!hrs||+hrs<=0)return;
+    setProjects(prev=>prev.map(p=>{
+      if(p.id!==projId)return p;
+      const existing=p.vaHours||{};
+      const today=new Date().toISOString().split('T')[0];
+      const log=[...(existing[vaId]?.log||[]),{date:today,hrs:+hrs}];
+      const total=(existing[vaId]?.total||0)+(+hrs);
+      return{...p,vaHours:{...existing,[vaId]:{total,log}}};
+    }));
+    setHoursInput(p=>({...p,[projId]:''}));
+  }
+
+  return(
+    <div style={cardS()}>
+      <div style={lblS()}>📁 My Projects — Hours</div>
+      <div style={{fontSize:'10px',color:C.muted,marginBottom:'14px'}}>Log hours directly to a project or view your breakdown per project.</div>
+      {myProjects.map(proj=>{
+        const taskHrs=(proj?.tasks||[]).filter(t=>t.assignedTo===vaId).reduce((s,t)=>s+(+t.hoursLogged||0),0);
+        const projHrs=proj?.vaHours?.[vaId]?.total||0;
+        const totalHrs=taskHrs+projHrs;
+        const isExp=expanded[proj.id];
+        const log=proj?.vaHours?.[vaId]?.log||[];
+        return(
+          <div key={proj.id} style={{background:C.bg,borderRadius:'10px',padding:'12px 14px',marginBottom:'10px',border:`1px solid ${C.border}`}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:'8px',marginBottom:'10px'}}>
+              <div>
+                <div style={{fontWeight:700,fontSize:'13px',color:C.navy}}>{proj.title}</div>
+                <div style={{fontSize:'10px',color:C.muted,marginTop:'2px',display:'flex',gap:'12px'}}>
+                  <span>⏱ <strong style={{color:C.navy}}>{totalHrs} hrs</strong> total</span>
+                  {taskHrs>0&&<span>From tasks: {taskHrs} hrs</span>}
+                  {projHrs>0&&<span>Direct: {projHrs} hrs</span>}
+                </div>
+              </div>
+              {log.length>0&&(
+                <button onClick={()=>setExpanded(p=>({...p,[proj.id]:!p[proj.id]}))}
+                  style={Btn('secondary',{padding:'4px 10px',fontSize:'10px'})}>
+                  {isExp?'▲ Hide Log':'▼ View Log'}
+                </button>
+              )}
+            </div>
+
+            {/* HOUR LOG */}
+            {isExp&&log.length>0&&(
+              <div style={{background:C.card,borderRadius:'8px',padding:'10px',marginBottom:'10px',border:`1px solid ${C.border}`}}>
+                {log.map((entry,i)=>(
+                  <div key={i} style={{display:'flex',justifyContent:'space-between',fontSize:'11px',color:C.text,padding:'3px 0',borderBottom:i<log.length-1?`1px solid ${C.border}`:'none'}}>
+                    <span>{entry.date}</span>
+                    <span style={{fontWeight:600}}>{entry.hrs} hrs</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* ADD HOURS */}
+            <div style={{display:'flex',gap:'8px',alignItems:'center'}}>
+              <label style={{...lblS(),marginBottom:0,whiteSpace:'nowrap',fontSize:'9px'}}>Add hours to project:</label>
+              <input type="number" placeholder="0" min="0" step="0.5"
+                value={hoursInput[proj.id]||''}
+                onChange={e=>setHoursInput(p=>({...p,[proj.id]:e.target.value}))}
+                style={{...inp(),width:'80px',padding:'5px 8px',fontSize:'12px'}}/>
+              <button onClick={()=>addProjectHours(proj.id,hoursInput[proj.id])}
+                style={Btn('accent',{padding:'5px 14px',fontSize:'11px'})}>+ Add</button>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 /* ── VA DAILY TIMESHEET ── */
 function VATimesheet({va,vaId,vaUsers,setVaUsers,month,ml,emailConfig,hoursPayroll}){
   const[yr,mo]=month.split('-').map(Number);
@@ -1119,6 +1203,9 @@ export function VAView({projects,setProjects,auth,vaUsers,setVaUsers,month,impor
 
       {/* VA DAILY TIMESHEET */}
       <VATimesheet va={va} vaId={auth?.vaId} vaUsers={vaUsers} setVaUsers={setVaUsers} month={curMonth} ml={ml} emailConfig={emailConfig} hoursPayroll={hoursPayroll}/>
+
+      {/* PROJECT HOURS SUMMARY */}
+      <VAProjectHours projects={projects} setProjects={setProjects} vaId={auth?.vaId}/>
 
       <div style={cardS()}>
         <div style={lblS()}>My Tasks — {ml}</div>
