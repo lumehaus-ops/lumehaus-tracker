@@ -2785,7 +2785,25 @@ export default function App(){
         const hp=await dbGet('lh4:hrspay');if(hp)setHoursPayroll(JSON.parse(hp));
         const ec=await dbGet('lh4:email');if(ec){const parsed=JSON.parse(ec);setEmailConfig(parsed);if(parsed.publicKey)initEmail(parsed.publicKey);}
         const pj=await dbGet('lh4:projects');if(pj)setProjects(JSON.parse(pj));
-        const va=await dbGet('lh4:vausers');if(va)setVaUsers(JSON.parse(va));
+        const va=await dbGet('lh4:vausers');
+        const localVA=localStorage.getItem('lh4:vausers');
+        if(va&&localVA){
+          const supVA=JSON.parse(va);
+          const locVA=JSON.parse(localVA);
+          // Merge: combine both arrays, dedupe by id, local wins on conflict
+          const merged=Object.values({
+            ...(supVA||[]).reduce((a,v)=>({...a,[v.id]:v}),{}),
+            ...(locVA||[]).reduce((a,v)=>({...a,[v.id]:v}),{}),
+          });
+          setVaUsers(merged);
+          // Sync merged back to Supabase
+          dbSet('lh4:vausers',JSON.stringify(merged));
+        } else if(va){setVaUsers(JSON.parse(va));}
+        else if(localVA){
+          const locVA=JSON.parse(localVA);
+          setVaUsers(locVA);
+          dbSet('lh4:vausers',JSON.stringify(locVA));
+        }
         const pr=await dbGet('lh4:payroll');if(pr)setPayroll(JSON.parse(pr));
         const cr=await dbGet('lh4:creds');
         if(cr){
@@ -2813,7 +2831,11 @@ export default function App(){
   useEffect(()=>{if(ready)dbSet('lh4:hrspay',JSON.stringify(hoursPayroll));},[hoursPayroll,ready]);
   useEffect(()=>{if(ready)dbSet('lh4:email',JSON.stringify(emailConfig));},[emailConfig,ready]);
   useEffect(()=>{if(ready)dbSet('lh4:projects',JSON.stringify(projects));},[projects,ready]);
-  useEffect(()=>{if(ready)dbSet('lh4:vausers',JSON.stringify(vaUsers));},[vaUsers,ready]);
+  useEffect(()=>{
+    if(ready&&vaUsers.length>0){
+      dbSet('lh4:vausers',JSON.stringify(vaUsers));
+    }
+  },[vaUsers,ready]);
   useEffect(()=>{if(ready)dbSet('lh4:payroll',JSON.stringify(payroll));},[payroll,ready]);
 
   const isAdmin=auth?.role==='admin';
