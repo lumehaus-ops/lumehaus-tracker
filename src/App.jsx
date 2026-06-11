@@ -1377,7 +1377,7 @@ export function ProjectsView({projects,setProjects,providers,vaUsers,setVaUsers,
     <div>
       {/* TAB NAV */}
       <div style={{display:'flex',gap:'4px',background:C.card,borderRadius:'10px',padding:'4px',marginBottom:'16px',width:'fit-content',border:`1px solid ${C.border}`,boxShadow:C.shadow}}>
-        {[['projects','📋 Projects'],['team','👤 VA Management']].map(([t,l])=>(
+        {[['projects','📋 Projects'],['calendar','📅 Calendar']].map(([t,l])=>(
           <button key={t} onClick={()=>setTab(t)} style={{padding:'7px 18px',borderRadius:'7px',border:'none',cursor:'pointer',background:tab===t?C.navy:'transparent',color:tab===t?'#fff':C.muted,fontFamily:sans,fontSize:'12px',fontWeight:600}}>{l}</button>
         ))}
       </div>
@@ -1582,65 +1582,7 @@ export function ProjectsView({projects,setProjects,providers,vaUsers,setVaUsers,
       )}
 
       {/* ── VA MANAGEMENT TAB ── */}
-      {tab==='team'&&(
-        <>
-          <div style={cardS()}>
-            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'12px'}}>
-              <div><div style={lblS()}>Virtual Assistant Accounts</div><div style={{fontSize:'10px',color:C.muted,marginTop:'2px'}}>VAs have their own login and see only tasks assigned to them. Hourly tracking included.</div></div>
-              <button style={Btn('primary')} onClick={()=>setShowVAForm(!showVAForm)}>{showVAForm?'✕ Cancel':'+ Add VA'}</button>
-            </div>
-            {showVAForm&&(
-              <div style={{background:C.bg,borderRadius:'10px',padding:'14px',marginBottom:'14px',border:`1px solid ${C.border}`}}>
-                <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(140px,1fr))',gap:'10px',marginBottom:'10px'}}>
-                  <div><label style={lblS()}>Full Name</label><input value={vaForm.name} onChange={e=>setVaForm(p=>({...p,name:e.target.value}))} placeholder="VA name" style={inp()}/></div>
-                  <div><label style={lblS()}>Role / Title</label><input value={vaForm.role} onChange={e=>setVaForm(p=>({...p,role:e.target.value}))} placeholder="Virtual Assistant" style={inp()}/></div>
-                  <div><label style={lblS()}>Hourly Rate ($)</label><input type="number" value={vaForm.hourlyRate} onChange={e=>setVaForm(p=>({...p,hourlyRate:+e.target.value||0}))} style={inp()}/></div>
-                  <div><label style={lblS()}>Username</label><input value={vaForm.username} onChange={e=>setVaForm(p=>({...p,username:e.target.value}))} placeholder="Login username" style={inp()}/></div>
-                  <div><label style={lblS()}>Password</label><input value={vaForm.password} onChange={e=>setVaForm(p=>({...p,password:e.target.value}))} style={inp()}/></div>
-                </div>
-                <button style={Btn('primary')} onClick={saveVA}>✓ Save VA</button>
-              </div>
-            )}
-            {vaUsers.length===0
-              ?<div style={{textAlign:'center',padding:'28px',color:C.muted}}>No VA accounts yet.</div>
-              :vaUsers.map(va=>{
-                const vaTasks=projects.flatMap(p=>(p.tasks||[]).filter(t=>t.assignedTo===va.id).map(t=>({...t,projectTitle:p.title})));
-                const done=vaTasks.filter(t=>t.status==='Complete').length;
-                const totalHours=Object.values(va.hoursLogged||{}).reduce((s,h)=>s+(+h||0),0);
-                return(
-                  <div key={va.id} style={{background:C.bg,borderRadius:'10px',padding:'14px',marginBottom:'10px',border:`1px solid ${C.border}`,borderLeft:'4px solid #9a6fa3'}}>
-                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',flexWrap:'wrap',gap:'8px'}}>
-                      <div>
-                        <div style={{fontWeight:700,fontSize:'14px',color:C.navy}}>{va.name}</div>
-                        <div style={{fontSize:'10px',color:C.muted,marginTop:'2px'}}>{va.role} · ${va.hourlyRate}/hr · Login: <strong>{va.username}</strong></div>
-                        <div style={{fontSize:'10px',color:C.muted,marginTop:'4px',display:'flex',gap:'14px',flexWrap:'wrap'}}>
-                          <span>📋 {vaTasks.length} tasks assigned ({done} complete)</span>
-                          <span>⏱ {totalHours} hrs logged · Est. pay: <strong style={{color:C.navy}}>{f0(totalHours*(va.hourlyRate||0))}</strong></span>
-                        </div>
-                      </div>
-                      <div style={{display:'flex',gap:'6px'}}>
-                        <button onClick={()=>{setVaForm(va);setShowVAForm(true);}} style={Btn('secondary',{padding:'5px 12px',fontSize:'11px'})}>Edit</button>
-                        <button onClick={()=>{setVaUsers(prev=>prev.filter(x=>x.id!==va.id));setCreds(c=>{const v={...(c.vas||{})};delete v[va.id];return{...c,vas:v};});}} style={Btn('danger',{padding:'5px 8px',fontSize:'11px'})}>Remove</button>
-                      </div>
-                    </div>
-                    {vaTasks.length>0&&(
-                      <div style={{marginTop:'10px',borderTop:`1px solid ${C.border}`,paddingTop:'10px'}}>
-                        {vaTasks.slice(0,3).map(t=>(
-                          <div key={t.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'4px 0',fontSize:'11px'}}>
-                            <span style={{color:C.text}}>{t.projectTitle} → {t.title}</span>
-                            <StatusBadge s={t.status}/>
-                          </div>
-                        ))}
-                        {vaTasks.length>3&&<div style={{fontSize:'10px',color:C.muted,marginTop:'4px'}}>+{vaTasks.length-3} more tasks</div>}
-                      </div>
-                    )}
-                  </div>
-                );
-              })
-            }
-          </div>
-        </>
-      )}
+
     </div>
   );
 }
@@ -3024,7 +2966,7 @@ export default function App(){
   function saveSvc(){if(!newSvc.name)return;setCatalog(p=>[...p,{...newSvc,id:uid()}]);setNewSvc(blankSv());setSvcOpen(false);}
 
   const navItems=isAdmin?['combined','dashboard','log','commission','catalog','providers','expenses','breakeven','analytics','projects','kpi']:auth?.role==='va'?['projects']:['dashboard','log','tasks','myprojects'];
-  const navLabels={'combined':'👥 All Providers','dashboard':'Dashboard','log':'Log','commission':'Commission','catalog':'Catalog','providers':'Providers','expenses':'💰 Expenses','breakeven':'📈 Breakeven','analytics':'📊 Analytics','projects':'📋 Projects','tasks':'📋 My Tasks','myprojects':'📁 My Projects','kpi':'🎯 KPIs'};
+  const navLabels={'combined':'👥 All Providers','dashboard':'Dashboard','log':'Log','commission':'Commission','catalog':'Catalog','providers':'Staff','expenses':'💰 Expenses','breakeven':'📈 Breakeven','analytics':'📊 Analytics','projects':'📋 Projects','tasks':'📋 My Tasks','myprojects':'📁 My Projects','kpi':'🎯 KPIs'};
 
   return(
     <div style={{background:C.bg,minHeight:'100vh',fontFamily:sans,color:C.text}}>
