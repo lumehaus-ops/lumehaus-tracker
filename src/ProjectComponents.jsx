@@ -4,6 +4,8 @@ import { sendTaskAlert, sendHoursApproval } from './emailService.js';
 export function ImportantDetailsBlock({personId,personName,importantDetails,setImportantDetails}){
   const details = importantDetails[personId] || {notes:'',links:[]};
   const[editing,setEditing]=useState(false);
+  const hasContent=details.notes||(details.links||[]).length>0;
+  const[collapsed,setCollapsed]=useState(hasContent);
   const[draft,setDraft]=useState(details.notes||'');
   const[linkForm,setLinkForm]=useState({label:'',url:''});
   const[addingLink,setAddingLink]=useState(false);
@@ -43,7 +45,7 @@ export function ImportantDetailsBlock({personId,personName,importantDetails,setI
 
   return(
     <div style={{...cardS(),border:`2px solid ${C.accent}33`,background:'#fafcfd',marginBottom:'14px'}}>
-      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'10px'}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:collapsed?'0':'10px',cursor:'pointer'}} onClick={e=>{if(e.target.tagName==='BUTTON'||e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA'||e.target.tagName==='A')return;setCollapsed(!collapsed);}}>
         <div style={{display:'flex',gap:'8px',alignItems:'center'}}>
           <span style={{fontSize:'16px'}}>📌</span>
           <div>
@@ -51,12 +53,14 @@ export function ImportantDetailsBlock({personId,personName,importantDetails,setI
             {personName&&<div style={{fontSize:'10px',color:C.muted}}>{personName}</div>}
           </div>
         </div>
-        <div style={{display:'flex',gap:'6px'}}>
-          <button onClick={()=>setAddingLink(!addingLink)} style={Btn('secondary',{padding:'5px 12px',fontSize:'10px'})}>🔗 {addingLink?'Cancel':'Add Link'}</button>
-          <button onClick={()=>{setEditing(!editing);setDraft(details.notes||'');}} style={Btn(editing?'primary':'accent',{padding:'5px 12px',fontSize:'10px'})}>{editing?'Cancel':'✏️ Edit Notes'}</button>
+        <div style={{display:'flex',gap:'6px',alignItems:'center'}}>
+          {!collapsed&&<><button onClick={e=>{e.stopPropagation();setAddingLink(!addingLink);}} style={Btn('secondary',{padding:'5px 12px',fontSize:'10px'})}>🔗 {addingLink?'Cancel':'Add Link'}</button>
+          <button onClick={e=>{e.stopPropagation();setEditing(!editing);setDraft(details.notes||'');}} style={Btn(editing?'primary':'accent',{padding:'5px 12px',fontSize:'10px'})}>{editing?'Cancel':'✏️ Edit Notes'}</button></>}
+          <button onClick={e=>{e.stopPropagation();setCollapsed(!collapsed);}} style={{background:'none',border:'none',color:C.muted,cursor:'pointer',fontSize:'16px',padding:'0 4px'}}>{collapsed?'▼':'▲'}</button>
         </div>
       </div>
 
+      {!collapsed&&<>
       {/* ADD LINK FORM */}
       {addingLink&&(
         <div style={{background:C.bg,borderRadius:'8px',padding:'10px 12px',marginBottom:'10px',border:`1px solid ${C.border}`}}>
@@ -101,6 +105,8 @@ export function ImportantDetailsBlock({personId,personName,importantDetails,setI
           {!hasContent&&<div style={{color:C.muted,fontSize:'11px'}}>No details yet — click "✏️ Edit Notes" to add notes or "🔗 Add Link" to save a link.</div>}
         </div>
       )}
+      </>
+      }
     </div>
   );
 }
@@ -228,7 +234,7 @@ export function ProjectsView({projects,setProjects,providers,vaUsers,setVaUsers,
     <div>
       {/* TAB NAV */}
       <div style={{display:'flex',gap:'4px',background:C.card,borderRadius:'10px',padding:'4px',marginBottom:'16px',width:'fit-content',border:`1px solid ${C.border}`,boxShadow:C.shadow}}>
-        {[['projects','📋 Projects'],['calendar','📅 Calendar'],['team','👤 VA Management']].map(([t,l])=>(
+        {[['projects','📋 Projects'],['calendar','📅 Calendar']].map(([t,l])=>(
           <button key={t} onClick={()=>setTab(t)} style={{padding:'7px 18px',borderRadius:'7px',border:'none',cursor:'pointer',background:tab===t?C.navy:'transparent',color:tab===t?'#fff':C.muted,fontFamily:sans,fontSize:'12px',fontWeight:600}}>{l}</button>
         ))}
       </div>
@@ -440,66 +446,7 @@ export function ProjectsView({projects,setProjects,providers,vaUsers,setVaUsers,
         <ProjectCalendar projects={projects} month={month} setMonth={setMonth} providers={providers} vaUsers={vaUsers}/>
       )}
 
-      {/* ── VA MANAGEMENT TAB ── */}
-      {tab==='team'&&(
-        <>
-          <div style={cardS()}>
-            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'12px'}}>
-              <div><div style={lblS()}>Virtual Assistant Accounts</div><div style={{fontSize:'10px',color:C.muted,marginTop:'2px'}}>VAs have their own login and see only tasks assigned to them. Hourly tracking included.</div></div>
-              <button style={Btn('primary')} onClick={()=>setShowVAForm(!showVAForm)}>{showVAForm?'✕ Cancel':'+ Add VA'}</button>
-            </div>
-            {showVAForm&&(
-              <div style={{background:C.bg,borderRadius:'10px',padding:'14px',marginBottom:'14px',border:`1px solid ${C.border}`}}>
-                <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(140px,1fr))',gap:'10px',marginBottom:'10px'}}>
-                  <div><label style={lblS()}>Full Name</label><input value={vaForm.name} onChange={e=>setVaForm(p=>({...p,name:e.target.value}))} placeholder="VA name" style={inp()}/></div>
-                  <div><label style={lblS()}>Role / Title</label><input value={vaForm.role} onChange={e=>setVaForm(p=>({...p,role:e.target.value}))} placeholder="Virtual Assistant" style={inp()}/></div>
-                  <div><label style={lblS()}>Hourly Rate ($)</label><input type="number" value={vaForm.hourlyRate} onChange={e=>setVaForm(p=>({...p,hourlyRate:+e.target.value||0}))} style={inp()}/></div>
-                  <div><label style={lblS()}>Username</label><input value={vaForm.username} onChange={e=>setVaForm(p=>({...p,username:e.target.value}))} placeholder="Login username" style={inp()}/></div>
-                  <div><label style={lblS()}>Password</label><input value={vaForm.password} onChange={e=>setVaForm(p=>({...p,password:e.target.value}))} style={inp()}/></div>
-                </div>
-                <button style={Btn('primary')} onClick={saveVA}>✓ Save VA</button>
-              </div>
-            )}
-            {vaUsers.length===0
-              ?<div style={{textAlign:'center',padding:'28px',color:C.muted}}>No VA accounts yet.</div>
-              :vaUsers.map(va=>{
-                const vaTasks=(projects||[]).flatMap(p=>(p?.tasks||[]).filter(t=>t.assignedTo===va.id).map(t=>({...t,projectTitle:p.title})));
-                const done=vaTasks.filter(t=>t.status==='Complete').length;
-                const totalHours=Object.values(va.hoursLogged||{}).reduce((s,h)=>s+(+h||0),0);
-                return(
-                  <div key={va.id} style={{background:C.bg,borderRadius:'10px',padding:'14px',marginBottom:'10px',border:`1px solid ${C.border}`,borderLeft:'4px solid #9a6fa3'}}>
-                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',flexWrap:'wrap',gap:'8px'}}>
-                      <div>
-                        <div style={{fontWeight:700,fontSize:'14px',color:C.navy}}>{va.name}</div>
-                        <div style={{fontSize:'10px',color:C.muted,marginTop:'2px'}}>{va.role} · ${va.hourlyRate}/hr · Login: <strong>{va.username}</strong></div>
-                        <div style={{fontSize:'10px',color:C.muted,marginTop:'4px',display:'flex',gap:'14px',flexWrap:'wrap'}}>
-                          <span>📋 {vaTasks.length} tasks assigned ({done} complete)</span>
-                          <span>⏱ {totalHours} hrs logged · Est. pay: <strong style={{color:C.navy}}>{f0(totalHours*(va.hourlyRate||0))}</strong></span>
-                        </div>
-                      </div>
-                      <div style={{display:'flex',gap:'6px'}}>
-                        <button onClick={()=>{setVaForm(va);setShowVAForm(true);}} style={Btn('secondary',{padding:'5px 12px',fontSize:'11px'})}>Edit</button>
-                        <button onClick={()=>{setVaUsers(prev=>prev.filter(x=>x.id!==va.id));setCreds(c=>{const v={...(c.vas||{})};delete v[va.id];return{...c,vas:v};});}} style={Btn('danger',{padding:'5px 8px',fontSize:'11px'})}>Remove</button>
-                      </div>
-                    </div>
-                    {vaTasks.length>0&&(
-                      <div style={{marginTop:'10px',borderTop:`1px solid ${C.border}`,paddingTop:'10px'}}>
-                        {vaTasks.slice(0,3).map(t=>(
-                          <div key={t.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'4px 0',fontSize:'11px'}}>
-                            <span style={{color:C.text}}>{t.projectTitle} → {t.title}</span>
-                            <StatusBadge s={t.status}/>
-                          </div>
-                        ))}
-                        {vaTasks.length>3&&<div style={{fontSize:'10px',color:C.muted,marginTop:'4px'}}>+{vaTasks.length-3} more tasks</div>}
-                      </div>
-                    )}
-                  </div>
-                );
-              })
-            }
-          </div>
-        </>
-      )}
+
     </div>
   );
 }
@@ -995,10 +942,10 @@ export function StaffProjectsView({projects,setProjects,provId,provName}){
 
 
 /* ── VA DAILY TIMESHEET ── */
-function VATimesheet({va,vaId,vaUsers,setVaUsers,month,ml,emailConfig}){
+function VATimesheet({va,vaId,vaUsers,setVaUsers,month,ml,emailConfig,hoursPayroll}){
   const[yr,mo]=month.split('-').map(Number);
   const daysInMonth=new Date(yr,mo,0).getDate();
-  const[showLog,setShowLog]=useState(false);
+  const[showLog,setShowLog]=useState(true);
   const[submitting,setSubmitting]=useState(false);
   const[submitted,setSubmitted]=useState(false);
 
@@ -1054,7 +1001,10 @@ function VATimesheet({va,vaId,vaUsers,setVaUsers,month,ml,emailConfig}){
             <div key={wi} style={{marginBottom:'14px'}}>
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'8px'}}>
                 <span style={{fontSize:'10px',fontWeight:700,color:C.navy,background:C.accentBg,padding:'2px 10px',borderRadius:'999px'}}>Week {wi+1}</span>
+                <div style={{display:'flex',alignItems:'center',gap:'8px'}}>
                 <span style={{fontSize:'10px',color:C.muted,fontWeight:700}}>Total: <strong style={{color:C.navy}}>{weekTotals[wi]} hrs</strong></span>
+                {(()=>{const wk2=`${month}-w${wi+1}`;const rec=hoursPayroll?.[vaId]?.[wk2];return rec?.status==='paid'?<span style={{fontSize:'9px',fontWeight:700,color:C.success,background:C.successBg,padding:'2px 8px',borderRadius:'999px'}}>✓ Paid ${rec.paidDate||''}</span>:rec?.status==='approved'?<span style={{fontSize:'9px',fontWeight:700,color:C.accent,background:C.accentBg,padding:'2px 8px',borderRadius:'999px'}}>✓ Approved</span>:null;})()}
+              </div>
               </div>
               <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(70px,1fr))',gap:'6px'}}>
                 {week.map(({day,dow,hours})=>(
@@ -1063,7 +1013,8 @@ function VATimesheet({va,vaId,vaUsers,setVaUsers,month,ml,emailConfig}){
                     <div style={{fontSize:'10px',color:C.muted,marginBottom:'5px'}}>{mo}/{day}</div>
                     <input type="number" value={hours||''} min="0" max="24" step="0.5" placeholder="0"
                       onChange={e=>setHours(day,e.target.value)}
-                      style={{width:'100%',textAlign:'center',background:'#fff',border:`1px solid ${C.border}`,borderRadius:'5px',padding:'4px 2px',fontFamily:sans,fontSize:'12px',fontWeight:700,color:C.navy,outline:'none'}}/>
+                      style={{width:'100%',textAlign:'center',background:isLocked?C.successBg:'#fff',border:`1px solid ${isLocked?C.success:C.border}`,borderRadius:'5px',padding:'4px 2px',fontFamily:sans,fontSize:'12px',fontWeight:700,color:C.navy,outline:'none',cursor:isLocked?'not-allowed':'text'}}/>
+                    );})()}
                     <div style={{fontSize:'8px',color:C.muted,marginTop:'2px'}}>hrs</div>
                   </div>
                 ))}
@@ -1096,7 +1047,7 @@ function VATimesheet({va,vaId,vaUsers,setVaUsers,month,ml,emailConfig}){
 }
 
 /* ── VA VIEW ── */
-export function VAView({projects,setProjects,auth,vaUsers,setVaUsers,month,importantDetails,setImportantDetails,emailConfig}){
+export function VAView({projects,setProjects,auth,vaUsers,setVaUsers,month,importantDetails,setImportantDetails,emailConfig,hoursPayroll}){
   const va=vaUsers.find(v=>v.id===auth.vaId)||{name:auth.vaName,hourlyRate:0,hoursLogged:{}};
   const now=new Date();
   const curMonth=month||`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
@@ -1167,7 +1118,7 @@ export function VAView({projects,setProjects,auth,vaUsers,setVaUsers,month,impor
       </div>
 
       {/* VA DAILY TIMESHEET */}
-      <VATimesheet va={va} vaId={auth.vaId} vaUsers={vaUsers} setVaUsers={setVaUsers} month={curMonth} ml={ml} emailConfig={emailConfig}/>
+      <VATimesheet va={va} vaId={auth?.vaId} vaUsers={vaUsers} setVaUsers={setVaUsers} month={curMonth} ml={ml} emailConfig={emailConfig} hoursPayroll={hoursPayroll}/>
 
       <div style={cardS()}>
         <div style={lblS()}>My Tasks — {ml}</div>
