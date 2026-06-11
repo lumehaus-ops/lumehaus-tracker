@@ -3545,6 +3545,78 @@ export default function App(){
                 </div>
               );
             })}
+            {/* ── VIRTUAL ASSISTANTS ── */}
+            <div style={cardS()}>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'12px',flexWrap:'wrap',gap:'8px'}}>
+                <div>
+                  <div style={lblS()}>👤 Virtual Assistants</div>
+                  <div style={{fontSize:'10px',color:C.muted,marginTop:'2px'}}>Hourly pay only. VAs log daily hours and manage assigned tasks.</div>
+                </div>
+                <div style={{display:'flex',gap:'8px',flexWrap:'wrap'}}>
+                  <button style={Btn('secondary',{fontSize:'11px'})} onClick={async()=>{
+                    // Pull from Supabase AND localStorage, merge all
+                    const fromSupabase=await dbGet('lh4:vausers');
+                    const fromLocal=localStorage.getItem('lh4:vausers');
+                    const sup=fromSupabase?JSON.parse(fromSupabase):[];
+                    const loc=fromLocal?JSON.parse(fromLocal):[];
+                    // Also check old creds.vas for any VAs stored there
+                    const fromCreds=Object.entries(creds.vas||{}).map(([id,c])=>({id,name:c.name||id,role:'Virtual Assistant',hourlyRate:0,...c}));
+                    const all=[...sup,...loc,...fromCreds];
+                    // Dedupe by id
+                    const merged=Object.values(all.reduce((a,v)=>v?.id?({...a,[v.id]:v}):a,{}));
+                    if(merged.length===0){showToast('No saved VA data found','warn');return;}
+                    setVaUsers(merged);
+                    dbSet('lh4:vausers',JSON.stringify(merged));
+                    showToast(merged.length+' VA(s) recovered ✓');
+                  }}>🔄 Recover VA Data</button>
+                  <button style={Btn('primary')} onClick={()=>setCreds(c=>({...c,_showVAForm:!c._showVAForm}))}>{creds._showVAForm?'✕ Cancel':'+ Add VA'}</button>
+                </div>
+              </div>
+
+              {creds._showVAForm&&(
+                <div style={{background:C.bg,borderRadius:'10px',padding:'14px',marginBottom:'14px',border:`1px solid ${C.border}`}}>
+                  <VAFormInline vaUsers={vaUsers} setVaUsers={setVaUsers} creds={creds} setCreds={setCreds}/>
+                </div>
+              )}
+
+              {vaUsers.length===0
+                ?<div style={{textAlign:'center',padding:'20px',color:C.muted,fontSize:'12px'}}>No VA accounts yet. Click "+ Add VA" to create one.</div>
+                :vaUsers.map(va=>{
+                  const pc=(creds.vas||{})[va.id]||{};
+                  return(
+                    <div key={va.id} style={{background:C.bg,borderRadius:'10px',padding:'14px',marginBottom:'10px',border:`1px solid ${C.border}`,borderLeft:'4px solid #9a6fa3'}}>
+                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'10px',flexWrap:'wrap',gap:'8px'}}>
+                        <div style={{display:'flex',alignItems:'center',gap:'10px'}}>
+                          <div style={{width:'36px',height:'36px',borderRadius:'50%',background:'#9a6fa322',color:'#9a6fa3',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'13px',fontWeight:700}}>{initials(va.name)}</div>
+                          <div>
+                            <div style={{fontWeight:700,fontSize:'13px',color:C.navy}}>{va.name}</div>
+                            <div style={{fontSize:'10px',color:C.muted}}>{va.role||'Virtual Assistant'} · ${va.hourlyRate||0}/hr · Login: <strong>{pc.username}</strong></div>
+                          </div>
+                        </div>
+                        <button onClick={()=>setVaUsers(p=>p.filter(x=>x.id!==va.id))} style={Btn('danger',{padding:'5px 12px',fontSize:'11px'})}>Remove</button>
+                      </div>
+                      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(130px,1fr))',gap:'8px'}}>
+                        <div><label style={lblS()}>Name</label><input value={va.name||''} onChange={e=>setVaUsers(p=>p.map(x=>x.id===va.id?{...x,name:e.target.value}:x))} style={inp()}/></div>
+                        <div><label style={lblS()}>Role</label><input value={va.role||''} onChange={e=>setVaUsers(p=>p.map(x=>x.id===va.id?{...x,role:e.target.value}:x))} style={inp()}/></div>
+                        <div><label style={lblS()}>Hourly Rate ($/hr)</label><input type="number" value={va.hourlyRate||0} onChange={e=>setVaUsers(p=>p.map(x=>x.id===va.id?{...x,hourlyRate:+e.target.value}:x))} style={inp()}/></div>
+                        <div><label style={lblS()}>Username</label><input value={pc.username||''} onChange={e=>setCreds(c=>({...c,vas:{...(c.vas||{}),[va.id]:{...pc,username:e.target.value}}}))} style={inp()}/></div>
+                        <div><label style={lblS()}>Password</label><input value={pc.password||''} onChange={e=>setCreds(c=>({...c,vas:{...(c.vas||{}),[va.id]:{...pc,password:e.target.value}}}))} style={inp()}/></div>
+                      </div>
+                    </div>
+                  );
+                })
+              }
+
+              {/* VA HOURS & PAYMENTS */}
+              {vaUsers.length>0&&(
+                <div style={{marginTop:'16px',borderTop:`1px solid ${C.border}`,paddingTop:'16px'}}>
+                  <div style={lblS()}>⏱ Hours & Payments</div>
+                  <div style={{fontSize:'10px',color:C.muted,marginBottom:'14px'}}>Review submitted hours, approve, and record payments.</div>
+                  <HoursPayrollView vaUsers={vaUsers} hoursPayroll={hoursPayroll} setHoursPayroll={setHoursPayroll} emailConfig={emailConfig} showToast={showToast}/>
+                </div>
+              )}
+            </div>
+
             <div style={cardS()}>
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'10px'}}>
                 <div>
