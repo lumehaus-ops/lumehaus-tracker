@@ -1962,7 +1962,7 @@ function VAFormInline({vaUsers,setVaUsers,creds,setCreds}){
 
 
 /* ─── HOURS PAYMENT TRACKER ─────────────────────────────── */
-function HoursPayrollView({vaUsers,hoursPayroll,setHoursPayroll,emailConfig,showToast}){
+function HoursPayrollView({vaUsers,hoursPayroll,setHoursPayroll,emailConfig,showToast,projects}){
   const[selVA,setSelVA]=useState(vaUsers[0]?.id||'');
 
   const va=vaUsers.find(v=>v.id===selVA);
@@ -2023,7 +2023,12 @@ function HoursPayrollView({vaUsers,hoursPayroll,setHoursPayroll,emailConfig,show
 
       {/* SUMMARY CARDS */}
       <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(140px,1fr))',gap:'10px',marginBottom:'14px'}}>
-        {[['Hourly Rate','$'+rate+'/hr',''],['Total Paid','$'+(Math.round(totPaid)).toLocaleString(),C.success],['Outstanding','$'+(Math.round(totPending)).toLocaleString(),C.warn],['Weeks Logged',weeks.length+'','']].map(([l,v,col])=>(
+        {(()=>{
+          // Add project hours total
+          const projHrsTotal=(projects||[]).flatMap(p=>(p?.tasks||[]).filter(t=>t.assignedTo===selVA).map(t=>+t.hoursLogged||0)).reduce((s,h)=>s+h,0)+
+            (projects||[]).reduce((s,p)=>s+(p?.vaHours?.[selVA]?.total||0),0);
+          return[['Hourly Rate','$'+rate+'/hr',''],['Total Paid','$'+(Math.round(totPaid)).toLocaleString(),C.success],['Outstanding','$'+(Math.round(totPending)).toLocaleString(),C.warn],['Project Hours',projHrsTotal+' hrs','']];
+        })().map(([l,v,col])=>(
           <div key={l} style={cardS({marginBottom:0})}>
             <div style={lblS()}>{l}</div>
             <div style={{fontSize:'22px',fontWeight:300,fontFamily:serif,color:col||C.navy}}>{v}</div>
@@ -3612,7 +3617,7 @@ export default function App(){
                 <div style={{marginTop:'16px',borderTop:`1px solid ${C.border}`,paddingTop:'16px'}}>
                   <div style={lblS()}>⏱ Hours & Payments</div>
                   <div style={{fontSize:'10px',color:C.muted,marginBottom:'14px'}}>Review submitted hours, approve, and record payments.</div>
-                  <HoursPayrollView vaUsers={vaUsers} hoursPayroll={hoursPayroll} setHoursPayroll={setHoursPayroll} emailConfig={emailConfig} showToast={showToast}/>
+                  <HoursPayrollView vaUsers={vaUsers} hoursPayroll={hoursPayroll} setHoursPayroll={setHoursPayroll} emailConfig={emailConfig} showToast={showToast} projects={projects}/>
                 </div>
               )}
             </div>
