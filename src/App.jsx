@@ -1,4 +1,17 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+/* ─── TOAST NOTIFICATION ────────────────────────────────── */
+function Toast({toasts}){
+  return(
+    <div style={{position:'fixed',bottom:'80px',right:'24px',zIndex:500,display:'flex',flexDirection:'column',gap:'8px',pointerEvents:'none'}}>
+      {toasts.map(t=>(
+        <div key={t.id} style={{background:t.type==='error'?'#c03030':t.type==='warn'?'#b87d00':'#2e9e68',color:'#fff',padding:'10px 18px',borderRadius:'10px',fontSize:'12px',fontWeight:600,fontFamily:"'Montserrat',sans-serif",boxShadow:'0 4px 20px rgba(0,0,0,0.2)',display:'flex',alignItems:'center',gap:'8px',opacity:t.fading?0:1,transition:'opacity 0.4s',maxWidth:'280px'}}>
+          <span>{t.type==='error'?'✕':t.type==='warn'?'⚠':'✓'}</span>{t.msg}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import * as XLSX from 'xlsx';
 
 // ── INLINE EMAIL HELPERS ────────────────────────────────
@@ -39,6 +52,8 @@ const C={bg:'#f0f4f7',card:'#fff',navy:'#253649',accent:'#7a9fa3',accentL:'#9aaf
 const sans="'Montserrat',sans-serif",serif="'Cormorant Garamond',Georgia,serif";
 const f2=n=>`$${(+n||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}`;
 const f0=n=>`$${Math.round(+n||0).toLocaleString('en-US')}`;
+
+const initials=name=>(name||'?').split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2);
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,6);
 const wk=d=>Math.min(Math.ceil(new Date(d+'T12:00:00').getDate()/7),5);
 const pct=(a,b)=>b>0?Math.min((a/b)*100,100):0;
@@ -65,6 +80,12 @@ const DEF_CAT=[
   {id:'c11',name:'Peptide Therapy',cat:'other',price:250,cogsType:'flat',cogsFlat:80,cogsUnit:0,cogsVial:0,unit:'vial',active:true},
   {id:'c12',name:'Lumé 360 Consult',cat:'other',price:150,cogsType:'flat',cogsFlat:0,cogsUnit:0,cogsVial:0,unit:'session',active:true},
   {id:'c13',name:'Membership Signup',cat:'membership',price:0,cogsType:'flat',cogsFlat:0,cogsUnit:0,cogsVial:0,unit:'signup',active:true},
+,
+  {id:'r1',name:'SkinMedica HA5',cat:'retail',price:98,active:true,cogsType:'flat',cogsFlat:35,description:'Rejuvenating Hydrator'},
+  {id:'r2',name:'SkinMedica TNS Serum',cat:'retail',price:295,active:true,cogsType:'flat',cogsFlat:110,description:'Advanced Skin Serum'},
+  {id:'r3',name:'SkinMedica SPF 50+',cat:'retail',price:42,active:true,cogsType:'flat',cogsFlat:15,description:'Daily Sun Protection'},
+  {id:'r4',name:'Obagi Vitamin C Serum',cat:'retail',price:110,active:true,cogsType:'flat',cogsFlat:40,description:'Brightening Serum'},
+  {id:'r5',name:'ZO Exfoliating Polish',cat:'retail',price:58,active:true,cogsType:'flat',cogsFlat:20,description:'Resurfacing Treatment'}
 ];
 const DEF_PROV=[
   {id:'lauren',name:'Lauren',role:'Esthetician',color:'#7a9fa3',monthlyGoal:8000,hasHourly:true,compType:'hourly_goal',hourlyRate:15,injectableTiers:[{upTo:1999,rate:15},{upTo:3999,rate:20},{upTo:99999,rate:25}],facialTiers:[{upTo:1999,rate:15},{upTo:3999,rate:20},{upTo:99999,rate:25}],membershipBonus:10,retailCommRate:10},
@@ -74,22 +95,34 @@ const DEF_PROV=[
 const DEF_CREDS={admins:[{id:'admin1',name:'Crystal-Dior',username:'admin',password:'LumeAdmin2025'}],providers:{lauren:{username:'lauren',password:'Lauren2025'},emy:{username:'emy',password:'Emy2025'},megan:{username:'megan',password:'Megan2025'}},vas:{}};
 
 function calcComm(entries,prov,catalog,hrs,retail){
-  const rows=entries.map(e=>{const s=catalog.find(c=>c.id===e.serviceId);const net=Math.max(0,(+e.retailPrice||0)-(+e.discount||0));const cogs=e.cogsOverride?(+e.cogsManual||0):cogCalc(s,e.unitsUsed,e.vialsUsed);return{...e,net,cogs,tip:+e.tip||0,cat:s?.cat||'other'};});
+  const rows=entries.map(e=>{const s=e.serviceId==='__custom_product__'?{id:'__custom_product__',cat:'retail',cogsType:'flat',cogsFlat:0}:catalog.find(c=>c.id===e.serviceId);const net=Math.max(0,(+e.retailPrice||0)-(+e.discount||0));const cogs=e.cogsOverride?(+e.cogsManual||0):cogCalc(s,e.unitsUsed,e.vialsUsed);const cat=e.cat||s?.cat||'other';return{...e,net,cogs,tip:+e.tip||0,cat};});
   const injRev=rows.filter(r=>r.cat==='injectable').reduce((s,r)=>s+r.net,0);
   const facRev=rows.filter(r=>r.cat==='facial').reduce((s,r)=>s+r.net,0);
-  const svcRev=rows.reduce((s,r)=>s+r.net,0);
-  const retRev=+retail?.rev||0,retCogs=+retail?.cogs||0;
-  const totRev=svcRev+retRev,totCogs=rows.reduce((s,r)=>s+r.cogs,0)+retCogs;
-  const totTips=rows.reduce((s,r)=>s+r.tip,0),memCt=rows.filter(r=>r.cat==='membership').length;
-  const memB=memCt*(prov?.membershipBonus||10||10);
-  const retComm=retRev*((prov?.retailCommRate||0||0)/100);
+  // Retail: pull from logged entries (cat=retail) PLUS manual lump sum
+  const loggedRetail=rows.filter(r=>r.cat==='retail');
+  const loggedRetRev=loggedRetail.reduce((s,r)=>s+r.net,0);
+  const loggedRetCogs=loggedRetail.reduce((s,r)=>s+r.cogs,0);
+  const manualRetRev=+retail?.rev||0, manualRetCogs=+retail?.cogs||0;
+  const retRev=loggedRetRev+manualRetRev;
+  const retCogs=loggedRetCogs+manualRetCogs;
+  // svcRev excludes retail (retail has its own commission track)
+  const svcRev=rows.filter(r=>r.cat!=='retail').reduce((s,r)=>s+r.net,0);
+  const totRev=svcRev+retRev;
+  const totCogs=rows.reduce((s,r)=>s+r.cogs,0)+manualRetCogs;
+  const totTips=rows.reduce((s,r)=>s+r.tip,0);
+  const memCt=rows.filter(r=>r.cat==='membership').length;
+  const memB=memCt*(prov?.membershipBonus||10);
+  const retComm=retRev*((prov?.retailCommRate||0)/100);
   const gp=totRev-totCogs;
-  const iT=(prov?.injectableTiers||[]||[]).find(t=>injRev<=t.upTo)||{rate:0};
-  const fT=(prov?.facialTiers||[]||[]).find(t=>facRev<=t.upTo)||{rate:0};
+  const iT=(prov?.injectableTiers||[]).find(t=>injRev<=t.upTo)||{rate:0};
+  const fT=(prov?.facialTiers||[]).find(t=>facRev<=t.upTo)||{rate:0};
   let basePay=0,injC=0,facC=0,above=0;
-  if(prov?.compType==='hourly_goal'){basePay=(+hrs||0)*(+prov?.hourlyRate||0||0);above=Math.max(0,svcRev-(prov?.monthlyGoal||0||0));if(above>0&&svcRev>0){injC=(above*(injRev/svcRev))*(iT.rate/100);facC=(above*(facRev/svcRev))*(fT.rate/100);}}
-  else{injC=injRev*(iT.rate/100);facC=facRev*(fT.rate/100);}
-  return{totRev,svcRev,injRev,facRev,retRev,totCogs,retCogs,gp,totTips,memCt,memB,retComm,basePay,iT,fT,injC,facC,totC:injC+facC+memB+retComm,totalPay:basePay+injC+facC+memB+retComm,above,hrs:+hrs||0};
+  if(prov?.compType==='hourly_goal'){
+    basePay=(+hrs||0)*(+prov?.hourlyRate||0);
+    above=Math.max(0,svcRev-(prov?.monthlyGoal||0));
+    if(above>0&&svcRev>0){injC=(above*(injRev/svcRev))*(iT.rate/100);facC=(above*(facRev/svcRev))*(fT.rate/100);}
+  } else {injC=injRev*(iT.rate/100);facC=facRev*(fT.rate/100);}
+  return{totRev,svcRev,injRev,facRev,retRev,loggedRetRev,loggedRetail,totCogs,retCogs,gp,totTips,memCt,memB,retComm,basePay,iT,fT,injC,facC,totC:injC+facC+memB+retComm,totalPay:basePay+injC+facC+memB+retComm,above,hrs:+hrs||0,entries:rows.length};
 }
 
 function LoginScreen({providers,creds,onLogin}){
@@ -278,7 +311,7 @@ function ExpensesView({expenses,setExpenses,month,payroll,setPayroll,providers,l
             ))}
           </div>
           {tab!=='payroll'&&<button style={Btn('primary')} onClick={()=>{setShowForm(!showForm);setEditId(null);setForm(blankExp());}}>{
-showForm?'✕ Cancel':'+ Add Expense'}}</button>}
+showForm?'✕ Cancel':'+ Add Expense'}</button>}
         </div>
 
         {/* PAYROLL TAB */}
@@ -1984,6 +2017,172 @@ function VAFormInline({vaUsers,setVaUsers,creds,setCreds}){
   );
 }
 
+
+/* ─── HOURS PAYMENT TRACKER ─────────────────────────────── */
+function HoursPayrollView({vaUsers,hoursPayroll,setHoursPayroll,emailConfig,showToast}){
+  const[selVA,setSelVA]=useState(vaUsers[0]?.id||'');
+
+  const va=vaUsers.find(v=>v.id===selVA);
+
+  // Build week records from va timesheet data
+  function getWeeks(va){
+    if(!va?.timesheet)return[];
+    const weeks=[];
+    Object.entries(va.timesheet||{}).forEach(([month,days])=>{
+      // Group days into weeks
+      const[yr,mo]=month.split('-').map(Number);
+      const daysInMonth=new Date(yr,mo,0).getDate();
+      for(let w=1;w<=5;w++){
+        const d1=(w-1)*7+1, d2=Math.min(w*7,daysInMonth);
+        const wHours=Object.entries(days||{})
+          .filter(([d])=>+d>=d1&&+d<=d2)
+          .reduce((s,[,h])=>s+(+h||0),0);
+        if(wHours>0){
+          const weekKey=`${month}-w${w}`;
+          weeks.push({weekKey,month,w,d1,d2,hours:wHours,
+            label:`${new Date(month+'-02').toLocaleString('default',{month:'short',year:'numeric'})} · Week ${w} (${mo}/${d1}–${mo}/${d2})`});
+        }
+      }
+    });
+    return weeks.sort((a,b)=>b.weekKey.localeCompare(a.weekKey));
+  }
+
+  const weeks=va?getWeeks(va):[];
+  const rate=va?.hourlyRate||0;
+
+  function getStatus(weekKey){
+    return hoursPayroll[selVA]?.[weekKey]||{status:'pending'};
+  }
+
+  function updateRecord(weekKey,updates){
+    setHoursPayroll(p=>({...p,[selVA]:{...(p[selVA]||{}),[weekKey]:{...(p[selVA]?.[weekKey]||{}),status:'pending',...updates}}}));
+  }
+
+  const totPaid=weeks.filter(w=>getStatus(w.weekKey).status==='paid').reduce((s,w)=>s+(+getStatus(w.weekKey).amountPaid||0),0);
+  const totPending=weeks.filter(w=>getStatus(w.weekKey).status!=='paid').reduce((s,w)=>s+(w.hours*rate),0);
+
+  if(vaUsers.length===0)return<div style={cardS({textAlign:'center',padding:'32px',color:C.muted})}>No VA accounts set up yet. Add one in the Team section above.</div>;
+
+  return(
+    <div>
+      {/* VA TABS */}
+      {vaUsers.length>1&&(
+        <div style={{display:'flex',gap:'7px',marginBottom:'14px',flexWrap:'wrap'}}>
+          {vaUsers.map(v=>(
+            <button key={v.id} onClick={()=>setSelVA(v.id)}
+              style={{display:'flex',alignItems:'center',gap:'6px',padding:'5px 14px 5px 5px',borderRadius:'20px',border:`2px solid ${selVA===v.id?'#9a6fa3':C.border}`,background:selVA===v.id?'#9a6fa3':C.card,color:selVA===v.id?'#fff':C.muted,cursor:'pointer',fontFamily:sans,fontSize:'12px',fontWeight:600}}>
+              <span style={{width:'24px',height:'24px',borderRadius:'50%',background:selVA===v.id?'rgba(255,255,255,0.25)':'#9a6fa322',color:selVA===v.id?'#fff':'#9a6fa3',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'9px',fontWeight:700}}>{initials(v.name)}</span>
+              {v.name}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* SUMMARY CARDS */}
+      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(140px,1fr))',gap:'10px',marginBottom:'14px'}}>
+        {[['Hourly Rate','$'+rate+'/hr',''],['Total Paid','$'+(Math.round(totPaid)).toLocaleString(),C.success],['Outstanding','$'+(Math.round(totPending)).toLocaleString(),C.warn],['Weeks Logged',weeks.length+'','']].map(([l,v,col])=>(
+          <div key={l} style={cardS({marginBottom:0})}>
+            <div style={lblS()}>{l}</div>
+            <div style={{fontSize:'22px',fontWeight:300,fontFamily:serif,color:col||C.navy}}>{v}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* WEEKS TABLE */}
+      <div style={cardS()}>
+        <div style={lblS()}>{va?.name} — Hours Log & Payments</div>
+        {weeks.length===0
+          ?<div style={{textAlign:'center',padding:'24px',color:C.muted,fontSize:'12px'}}>No hours logged by {va?.name} yet.</div>
+          :<div style={{overflowX:'auto'}}>
+            <table style={{width:'100%',borderCollapse:'collapse',fontSize:'11px',minWidth:'600px'}}>
+              <thead><tr>
+                {['Week','Hours','Rate','Amount','Status','Payment Date','Notes','Action'].map(h=>(
+                  <th key={h} style={{textAlign:'left',padding:'6px 8px',fontSize:'9px',fontWeight:700,letterSpacing:'0.06em',textTransform:'uppercase',color:C.muted,borderBottom:`1px solid ${C.border}`}}>{h}</th>
+                ))}
+              </tr></thead>
+              <tbody>
+                {weeks.map(({weekKey,label,hours})=>{
+                  const rec=getStatus(weekKey);
+                  const amt=hours*rate;
+                  const isPaid=rec.status==='paid';
+                  const isApproved=rec.status==='approved';
+                  return(
+                    <tr key={weekKey} style={{borderBottom:`1px solid ${C.border}`,background:isPaid?C.successBg:isApproved?C.accentBg:'transparent'}}>
+                      <td style={{padding:'8px',fontWeight:600,color:C.navy,fontSize:'11px'}}>{label}</td>
+                      <td style={{padding:'8px',fontWeight:700,color:C.navy}}>{hours} hrs</td>
+                      <td style={{padding:'8px',color:C.muted}}>${rate}/hr</td>
+                      <td style={{padding:'8px',fontWeight:700}}>${Math.round(isPaid?(+rec.amountPaid||amt):amt).toLocaleString()}</td>
+                      <td style={{padding:'8px'}}>
+                        <span style={{fontSize:'9px',fontWeight:700,padding:'3px 10px',borderRadius:'999px',
+                          background:isPaid?C.success+'22':isApproved?C.accent+'22':'#f5f0e8',
+                          color:isPaid?C.success:isApproved?C.accent:C.warn}}>
+                          {isPaid?'✓ Paid':isApproved?'✓ Approved':'⏳ Pending'}
+                        </span>
+                      </td>
+                      <td style={{padding:'8px',color:C.muted,fontSize:'10px'}}>{rec.paidDate||'—'}</td>
+                      <td style={{padding:'8px'}}>
+                        <input value={rec.note||''} onChange={e=>updateRecord(weekKey,{note:e.target.value})}
+                          placeholder="Note…" style={{...inp({padding:'3px 7px',fontSize:'10px',background:'rgba(255,255,255,0.8)',width:'100px'})}}/>
+                      </td>
+                      <td style={{padding:'8px',whiteSpace:'nowrap'}}>
+                        {!isApproved&&!isPaid&&(
+                          <button onClick={()=>{updateRecord(weekKey,{status:'approved',approvedDate:new Date().toISOString().split('T')[0]});showToast('Hours approved ✓');}}
+                            style={Btn('secondary',{padding:'4px 10px',fontSize:'9px',marginRight:'4px'})}>✓ Approve</button>
+                        )}
+                        {isApproved&&!isPaid&&(
+                          <button onClick={()=>{
+                            const override=prompt(`Amount to pay? (default: $${Math.round(amt)})`);
+                            const finalAmt=override&&+override>0?+override:amt;
+                            updateRecord(weekKey,{status:'paid',amountPaid:finalAmt,paidDate:new Date().toISOString().split('T')[0]});
+                            showToast('Payment recorded ✓');
+                          }} style={Btn('primary',{padding:'4px 10px',fontSize:'9px'})}>💵 Mark Paid</button>
+                        )}
+                        {isPaid&&<span style={{fontSize:'10px',color:C.success,fontWeight:700}}>✓ Complete</span>}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              <tfoot><tr style={{background:C.bg,borderTop:`2px solid ${C.accent}55`}}>
+                <td colSpan={3} style={{padding:'8px',fontWeight:700,fontSize:'10px',color:C.navy}}>TOTALS</td>
+                <td style={{padding:'8px',fontWeight:700}}>${Math.round(totPaid+totPending).toLocaleString()}</td>
+                <td colSpan={2} style={{padding:'8px',fontSize:'10px',color:C.muted}}>Paid: ${Math.round(totPaid).toLocaleString()} · Outstanding: ${Math.round(totPending).toLocaleString()}</td>
+                <td colSpan={2}/>
+              </tr></tfoot>
+            </table>
+          </div>
+        }
+      </div>
+    </div>
+  );
+}
+
+
+/* ─── MY PAY SUMMARY CARD (staff) ──────────────────────── */
+function MyPaySummary({comm,prov,month}){
+  if(!comm||!prov)return null;
+  const ml=new Date(month+'-02').toLocaleString('default',{month:'long',year:'numeric'});
+  const pct=prov?.monthlyGoal?Math.min(100,Math.round((comm.svcRev/(prov.monthlyGoal||1))*100)):0;
+  return(
+    <div style={{...cardS(),background:`linear-gradient(135deg,${C.navy},#2a4a63)`,color:'#fff',marginBottom:'14px'}}>
+      <div style={{fontSize:'9px',fontWeight:700,letterSpacing:'0.12em',textTransform:'uppercase',color:'rgba(255,255,255,0.6)',marginBottom:'4px'}}>{ml} · Estimated Pay</div>
+      <div style={{fontSize:'38px',fontWeight:300,fontFamily:serif,lineHeight:1,marginBottom:'12px'}}>${Math.round(comm.totalPay||0).toLocaleString()}</div>
+      <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'10px',marginBottom:'14px'}}>
+        {[['Services Revenue','$'+(Math.round(comm.svcRev||0)).toLocaleString()],['Services Logged',comm.entries||0],['Goal Progress',pct+'%']].map(([l,v])=>(
+          <div key={l}>
+            <div style={{fontSize:'9px',color:'rgba(255,255,255,0.5)',fontWeight:700,textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:'2px'}}>{l}</div>
+            <div style={{fontSize:'18px',fontWeight:300,fontFamily:serif,color:'#fff'}}>{v}</div>
+          </div>
+        ))}
+      </div>
+      <div style={{background:'rgba(255,255,255,0.12)',borderRadius:'999px',height:'6px',overflow:'hidden'}}>
+        <div style={{height:'100%',borderRadius:'999px',width:pct+'%',background:pct>=100?'#2e9e68':'rgba(255,255,255,0.7)',transition:'width 0.6s'}}/>
+      </div>
+      <div style={{fontSize:'10px',color:'rgba(255,255,255,0.5)',marginTop:'5px'}}>Revenue goal: ${(prov?.monthlyGoal||0).toLocaleString()}</div>
+    </div>
+  );
+}
+
 /* ─── PROVIDER DAILY/WEEKLY TASK VIEW ───────────────────── */
 function ProviderTaskView({projects,setProjects,provId,provName,month}){
   const[viewMode,setViewMode]=useState('day');
@@ -2598,8 +2797,16 @@ export default function App(){
   const[importantDetails,setImportantDetails]=useState({});
   const[clients,setClients]=useState([]);
   const[kpiData,setKpiData]=useState({});
+  const[hoursPayroll,setHoursPayroll]=useState({});
   const[emailConfig,setEmailConfig]=useState({serviceId:'',templateId:'',publicKey:'',adminEmail:''});
   const[showQuickLog,setShowQuickLog]=useState(false);
+  const[toasts,setToasts]=useState([]);
+  const showToast=(msg,type='success')=>{
+    const id=Date.now();
+    setToasts(p=>[...p,{id,msg,type,fading:false}]);
+    setTimeout(()=>setToasts(p=>p.map(t=>t.id===id?{...t,fading:true}:t)),2500);
+    setTimeout(()=>setToasts(p=>p.filter(t=>t.id!==id)),2900);
+  };
   const[quickEntry,setQuickEntry]=useState({date:new Date().toISOString().split('T')[0],time:'',client:'',serviceId:'c1',retailPrice:'',discount:'0',tip:'0'});
   const[projects,setProjects]=useState([]);
   const[vaUsers,setVaUsers]=useState([]);
@@ -2613,7 +2820,7 @@ export default function App(){
   const[svcOpen,setSvcOpen]=useState(false);
   const[editProv,setEditProv]=useState(null);
   const[editSvc,setEditSvc]=useState(null);
-  const blankE=()=>({date:now.toISOString().split('T')[0],client:'',serviceId:'c1',retailPrice:'',discount:'0',discountPct:'',tip:'0',unitsUsed:'',vialsUsed:'',cogsManual:'',cogsOverride:false,notes:'',editId:null});
+  const blankE=()=>({date:now.toISOString().split('T')[0],client:'',serviceId:'__custom_product__',productName:'',retailPrice:'',discount:'0',discountPct:'',tip:'0',unitsUsed:'',vialsUsed:'',cogsManual:'',cogsOverride:false,notes:'',editId:null,isProduct:false});
   const blankP=()=>({id:uid(),name:'',role:'',color:'#7a9fa3',monthlyGoal:8000,hasHourly:false,compType:'commission_first',hourlyRate:0,injectableTiers:[{upTo:4999,rate:20},{upTo:99999,rate:25}],facialTiers:[{upTo:1999,rate:15},{upTo:99999,rate:20}],membershipBonus:10});
   const blankSv=()=>({id:uid(),name:'',cat:'facial',price:0,cogsType:'flat',cogsFlat:0,cogsUnit:0,cogsVial:0,unit:'session',active:true});
   const[entry,setEntry]=useState(blankE());
@@ -2632,6 +2839,7 @@ export default function App(){
         const id2=await dbGet('lh4:details');if(id2)setImportantDetails(JSON.parse(id2));
         const cl=await dbGet('lh4:clients');if(cl)setClients(JSON.parse(cl));
         const kd=await dbGet('lh4:kpi');if(kd)setKpiData(JSON.parse(kd));
+        const hp=await dbGet('lh4:hrspay');if(hp)setHoursPayroll(JSON.parse(hp));
         const ec=await dbGet('lh4:email');if(ec){const parsed=JSON.parse(ec);setEmailConfig(parsed);if(parsed.publicKey)initEmail(parsed.publicKey);}
         const pj=await dbGet('lh4:projects');if(pj)setProjects(JSON.parse(pj));
         const va=await dbGet('lh4:vausers');if(va)setVaUsers(JSON.parse(va));
@@ -2659,6 +2867,7 @@ export default function App(){
   useEffect(()=>{if(ready)dbSet('lh4:details',JSON.stringify(importantDetails));},[importantDetails,ready]);
   useEffect(()=>{if(ready)dbSet('lh4:clients',JSON.stringify(clients));},[clients,ready]);
   useEffect(()=>{if(ready)dbSet('lh4:kpi',JSON.stringify(kpiData));},[kpiData,ready]);
+  useEffect(()=>{if(ready)dbSet('lh4:hrspay',JSON.stringify(hoursPayroll));},[hoursPayroll,ready]);
   useEffect(()=>{if(ready)dbSet('lh4:email',JSON.stringify(emailConfig));},[emailConfig,ready]);
   useEffect(()=>{if(ready)dbSet('lh4:projects',JSON.stringify(projects));},[projects,ready]);
   useEffect(()=>{if(ready)dbSet('lh4:vausers',JSON.stringify(vaUsers));},[vaUsers,ready]);
@@ -2673,7 +2882,7 @@ export default function App(){
   const comm=useMemo(()=>prov?calcComm(entries,prov,catalog,hrs,retail):{totRev:0,svcRev:0,injRev:0,facRev:0,retRev:0,totCogs:0,retCogs:0,gp:0,totTips:0,memCt:0,memB:0,retComm:0,basePay:0,iT:{rate:0},fT:{rate:0},injC:0,facC:0,totC:0,totalPay:0,above:0,hrs:0},[entries,prov,catalog,hrs,retail]);
 
   if(!ready)return<div style={{minHeight:'100vh',background:C.navy,display:'flex',alignItems:'center',justifyContent:'center',color:C.accentL,fontFamily:sans}}>Loading…</div>;
-  if(!auth)return<LoginScreen providers={providers} creds={creds} onLogin={a=>{setAuth(a);if(a.role==='staff'){setSid(a.providerId);setView('dashboard');}else if(a.role==='va'){setView('projects');}else{setView('combined');}}}/> ;
+  if(!auth)return<LoginScreen providers={providers} creds={creds} onLogin={a=>{setAuth(a);if(a.role==='staff'){setSid(a.providerId);setView('log');}else if(a.role==='va'){setView('projects');}else{setView('combined');}}}/> ;
   const selSvc=catalog.find(c=>c.id===entry.serviceId)||catalog.find(c=>c.active)||catalog[0]||null;
   const autoCOG=selSvc?cogCalc(selSvc,entry.unitsUsed,entry.vialsUsed):0;
   const ml=new Date(month+'-02').toLocaleString('default',{month:'long',year:'numeric'});
@@ -2768,13 +2977,19 @@ export default function App(){
   }
 
   function saveLog(){
-    if(!entry.client||!entry.serviceId)return;
-    const sv2=(catalog||[]).find(c=>c.id===entry.serviceId);
+    if(!entry.client)return;
+    if(entry.isProduct&&!entry.productName)return;
+    if(!entry.isProduct&&!entry.serviceId)return;
+    const sv2=entry.isProduct?{id:'__custom_product__',name:entry.productName,cat:'retail',price:0,cogsType:'flat',cogsFlat:0}:(catalog||[]).find(c=>c.id===entry.serviceId);
     const cog2=entry.cogsOverride?(+entry.cogsManual||0):cogCalc(sv2,entry.unitsUsed,entry.vialsUsed);
     const price=+entry.retailPrice||(sv2?.price||0);
-    // Discount: use $ amount, or calculate from %
     const discAmt=entry.discount&&+entry.discount>0?+entry.discount:(entry.discountPct&&+entry.discountPct>0?price*(+entry.discountPct/100):0);
-    const e2={...entry,id:entry.editId||uid(),retailPrice:price,discount:discAmt,discountPct:price>0?((discAmt/price)*100).toFixed(1):'',tip:+entry.tip||0,cogsManual:cog2};
+    const e2={...entry,id:entry.editId||uid(),retailPrice:price,discount:discAmt,discountPct:price>0?((discAmt/price)*100).toFixed(1):'',tip:+entry.tip||0,cogsManual:cog2,
+      // Store product name for custom products
+      serviceId:entry.isProduct?'__custom_product__':entry.serviceId,
+      productName:entry.isProduct?entry.productName:'',
+      cat:entry.isProduct?'retail':undefined
+    };
     setLogData(p=>{
       let updated;
       if(entry.editId){
@@ -2790,7 +3005,7 @@ export default function App(){
       dbSet('lh4:data',JSON.stringify(updated));
       return updated;
     });
-    setEntry(blankE());setLogOpen(false);
+    setEntry(blankE());setLogOpen(false);showToast('Service logged ✓');
   }
   function startEditLog(e){
     setEntry({...e,discountPct:e.retailPrice>0?((+e.discount/+e.retailPrice)*100).toFixed(1):'',editId:e.id});
@@ -2803,7 +3018,7 @@ export default function App(){
     const id=uid();
     setProviders(p=>[...p,{...newProv,id}]);
     setCreds(c=>({...c,providers:{...c.providers,[id]:{username:newProv.name.toLowerCase().split(' ')[0],password:'LH2025'}}}));
-    setNewProv(blankP());setProvOpen(false);
+    setNewProv(blankP());setProvOpen(false);showToast('Provider added ✓');
   }
   function saveSvc(){if(!newSvc.name)return;setCatalog(p=>[...p,{...newSvc,id:uid()}]);setNewSvc(blankSv());setSvcOpen(false);}
 
@@ -2870,12 +3085,13 @@ export default function App(){
                 setClients(p=>[...p,{id:uid(),name:quickEntry.client,phone:'',email:'',notes:'',createdAt:new Date().toISOString().split('T')[0]}]);
               }
               setQuickEntry({date:new Date().toISOString().split('T')[0],time:'',client:'',serviceId:'c1',retailPrice:'',discount:'0',tip:'0'});
-              setShowQuickLog(false);
+              setShowQuickLog(false);showToast('Service logged ✓');
             }}>✓ Log Service</button>
           </div>
         </div>
       )}
 
+      <Toast toasts={toasts}/>
       {/* QUICK LOG FLOATING BUTTON */}
       {auth?.role!=='va'&&(
         <button onClick={()=>setShowQuickLog(true)} style={{position:'fixed',bottom:'24px',right:'24px',background:C.navy,color:'#fff',border:'none',borderRadius:'999px',width:'56px',height:'56px',fontSize:'24px',cursor:'pointer',boxShadow:'0 4px 20px rgba(37,54,73,0.35)',zIndex:150,display:'flex',alignItems:'center',justifyContent:'center'}}>+</button>
@@ -3015,7 +3231,7 @@ export default function App(){
                     {providers.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
                   </select>
                 )}
-                <button style={Btn('primary')} onClick={()=>{setEntry(blankE());setLogOpen(!logOpen);}}>{logOpen&&!entry.editId?'✕ Cancel':entry.editId?'✕ Cancel Edit':'+ Add Service'}</button>
+                <button style={Btn('primary')} onClick={()=>{setEntry(blankE());setLogOpen(!logOpen);}}>{logOpen&&!entry.editId?'✕ Cancel':entry.editId?'✕ Cancel Edit':'+ Add Entry'}</button>
               </div>
             </div>
 
@@ -3023,37 +3239,58 @@ export default function App(){
             {logOpen&&(
               <div style={{background:C.bg,borderRadius:'10px',padding:'16px',marginBottom:'16px',border:`1px solid ${entry.editId?C.warn:C.border}`}}>
                 {entry.editId&&<div style={{fontSize:'10px',fontWeight:700,color:C.warn,marginBottom:'10px'}}>✏️ Editing existing entry — changes save immediately</div>}
-                <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(135px,1fr))',gap:'10px',marginBottom:'12px'}}>
-                  <div><label style={lblS()}>Date</label><input type="date" value={entry.date} onChange={e=>setEntry(p=>({...p,date:e.target.value}))} style={inp()}/></div>
-                  <div><label style={lblS()}>Client *</label><ClientAutocomplete value={entry.client} onChange={v=>setEntry(p=>({...p,client:v}))} clients={clients}/></div>
-                  <div style={{gridColumn:'span 2'}}><label style={lblS()}>Service *</label>
-                    <select value={entry.serviceId} onChange={e=>{const sv=(catalog||[]).find(c=>c.id===e.target.value);setEntry(p=>({...p,serviceId:e.target.value,retailPrice:sv?.price||'',unitsUsed:'',vialsUsed:'',cogsManual:'',cogsOverride:false}));}} style={sel()}>
-                      {(catalog||[]).filter(c=>c.active).map(c=><option key={c.id} value={c.id}>{c.name} ({c.cat})</option>)}
-                    </select>
+                {/* TYPE TOGGLE — Service or Product */}
+                {!entry.editId&&(
+                  <div style={{display:'flex',gap:'0',background:C.bg,borderRadius:'8px',padding:'3px',marginBottom:'14px',width:'fit-content'}}>
+                    <button onClick={()=>setEntry(p=>({...p,isProduct:false}))}
+                      style={{padding:'6px 20px',borderRadius:'6px',border:'none',cursor:'pointer',background:!entry.isProduct?C.navy:'transparent',color:!entry.isProduct?'#fff':C.muted,fontFamily:sans,fontSize:'11px',fontWeight:600,transition:'all 0.15s'}}>
+                      💆 Service
+                    </button>
+                    <button onClick={()=>setEntry(p=>({...p,isProduct:true,serviceId:'__custom_product__'}))}
+                      style={{padding:'6px 20px',borderRadius:'6px',border:'none',cursor:'pointer',background:entry.isProduct?C.warn:'transparent',color:entry.isProduct?'#fff':C.muted,fontFamily:sans,fontSize:'11px',fontWeight:600,transition:'all 0.15s'}}>
+                      🛍 Product Sale
+                    </button>
                   </div>
+                )}
+                {entry.editId&&entry.isProduct&&<div style={{fontSize:'10px',fontWeight:700,color:C.warn,marginBottom:'10px'}}>✏️ Editing product sale</div>}
+                {entry.editId&&!entry.isProduct&&<div style={{fontSize:'10px',fontWeight:700,color:C.warn,marginBottom:'10px'}}>✏️ Editing service entry</div>}
+                <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(135px,1fr))',gap:'10px',marginBottom:'12px'}}>
+                  {/* DATE + CLIENT always first */}
+                  <div><label style={lblS()}>Date *</label><input type="date" value={entry.date} onChange={e=>setEntry(p=>({...p,date:e.target.value}))} style={inp()}/></div>
+                  <div><label style={lblS()}>Client *</label><ClientAutocomplete value={entry.client} onChange={v=>setEntry(p=>({...p,client:v}))} clients={clients}/></div>
+
+                  {/* PRODUCT NAME (product mode) OR SERVICE SELECT (service mode) */}
+                  {entry.isProduct?(
+                    <div style={{gridColumn:'span 2'}}>
+                      <label style={lblS()}>Product Name *</label>
+                      <input value={entry.productName||''} onChange={e=>setEntry(p=>({...p,productName:e.target.value}))}
+                        placeholder="e.g. SkinMedica HA5, Obagi Vitamin C..." style={{...inp(),border:`1px solid ${C.warn}66`,background:'#fffdf5'}}/>
+                      <div style={{fontSize:'9px',color:C.muted,marginTop:'4px'}}>Commission at your retail rate ({prov?.retailCommRate||0}%).</div>
+                    </div>
+                  ):(
+                    <div style={{gridColumn:'span 2'}}><label style={lblS()}>Service *</label>
+                      <select value={entry.serviceId} onChange={e=>{const sv=(catalog||[]).find(c=>c.id===e.target.value);setEntry(p=>({...p,serviceId:e.target.value,retailPrice:sv?.price||'',unitsUsed:'',vialsUsed:'',cogsManual:'',cogsOverride:false}));}} style={sel()}>
+                        {(catalog||[]).filter(c=>c.active).map(c=><option key={c.id} value={c.id}>{c.name} ({c.cat})</option>)}
+                      </select>
+                    </div>
+                  )}
+
+                  {/* PRICE + DISCOUNT + TIP */}
                   <div><label style={lblS()}>Retail Price ($)</label><input type="number" value={entry.retailPrice} onChange={e=>setEntry(p=>({...p,retailPrice:e.target.value}))} placeholder={`${selSvc?.price||0}`} style={inp()}/></div>
                   <div>
                     <label style={lblS()}>Discount ($)</label>
                     <input type="number" value={entry.discount} placeholder="0"
-                      onChange={e=>{
-                        const d=e.target.value;
-                        const price=+entry.retailPrice||(selSvc?.price||0);
-                        const pct=price>0&&+d>0?((+d/price)*100).toFixed(1):'';
-                        setEntry(p=>({...p,discount:d,discountPct:pct}));
-                      }} style={inp()}/>
+                      onChange={e=>{const d=e.target.value;const price=+entry.retailPrice||(selSvc?.price||0);const pct=price>0&&+d>0?((+d/price)*100).toFixed(1):'';setEntry(p=>({...p,discount:d,discountPct:pct}));}} style={inp()}/>
                   </div>
                   <div>
                     <label style={lblS()}>Discount (%)</label>
                     <input type="number" value={entry.discountPct} placeholder="0"
-                      onChange={e=>{
-                        const pct=e.target.value;
-                        const price=+entry.retailPrice||(selSvc?.price||0);
-                        const d=price>0&&+pct>0?(price*(+pct/100)).toFixed(2):'';
-                        setEntry(p=>({...p,discountPct:pct,discount:d}));
-                      }} style={inp()}/>
+                      onChange={e=>{const pct=e.target.value;const price=+entry.retailPrice||(selSvc?.price||0);const d=price>0&&+pct>0?(price*(+pct/100)).toFixed(2):'';setEntry(p=>({...p,discountPct:pct,discount:d}));}} style={inp()}/>
                   </div>
                   <div><label style={lblS()}>Tip ($)</label><input type="number" value={entry.tip} onChange={e=>setEntry(p=>({...p,tip:e.target.value}))} placeholder="0" style={inp()}/></div>
-                  {selSvc?.cogsType==='per_unit'&&<div><label style={lblS()}>Units Used</label><input type="number" value={entry.unitsUsed} onChange={e=>setEntry(p=>({...p,unitsUsed:e.target.value}))} placeholder="0" style={inp()}/></div>}
+
+                  {/* COGs — only for services */}
+                  {!entry.isProduct&&<>{selSvc?.cogsType==='per_unit'&&<div><label style={lblS()}>Units Used</label><input type="number" value={entry.unitsUsed} onChange={e=>setEntry(p=>({...p,unitsUsed:e.target.value}))} placeholder="0" style={inp()}/></div>}
                   {selSvc?.cogsType==='per_vial'&&<div><label style={lblS()}>Vials Used</label><input type="number" value={entry.vialsUsed} onChange={e=>setEntry(p=>({...p,vialsUsed:e.target.value}))} placeholder="0" style={inp()}/></div>}
                   <div>
                     <label style={lblS()}>COGs <span style={{textTransform:'none',fontWeight:400,color:C.muted,letterSpacing:0}}>Auto: {f2(autoCOG)}</span></label>
@@ -3061,9 +3298,11 @@ export default function App(){
                       <input type="number" value={entry.cogsOverride?entry.cogsManual:(+autoCOG||0).toFixed(2)} onChange={e=>setEntry(p=>({...p,cogsManual:e.target.value,cogsOverride:true}))} style={inp({flex:1})}/>
                       {entry.cogsOverride&&<button onClick={()=>setEntry(p=>({...p,cogsOverride:false,cogsManual:''}))} style={Btn('secondary',{padding:'6px 8px',fontSize:'10px'})}>↺</button>}
                     </div>
-                  </div>
+                  </div></>}
+
                   <div style={{gridColumn:'1/-1'}}><label style={lblS()}>Notes</label><input value={entry.notes||''} onChange={e=>setEntry(p=>({...p,notes:e.target.value}))} placeholder="Optional" style={inp()}/></div>
                 </div>
+
                 <div style={{background:C.successBg,border:`1px solid ${C.success}44`,borderRadius:'8px',padding:'8px 14px',marginBottom:'12px',fontSize:'11px',display:'flex',gap:'16px',flexWrap:'wrap'}}>
                   <span style={{color:C.success,fontWeight:700}}>Preview →</span>
                   <span>Retail: <strong>{f2(+entry.retailPrice||selSvc?.price||0)}</strong></span>
@@ -3079,6 +3318,7 @@ export default function App(){
             )}
 
             {/* LOG TABLE — admin sees all providers, staff sees own */}
+            <div style={{fontSize:'9px',color:C.muted,marginBottom:'6px',display:'none'}}>← Scroll to see all columns</div>
             {(()=>{
               // Build display rows: admin sees all providers filtered, staff sees own
               const displayRows=isAdmin
@@ -3106,7 +3346,7 @@ export default function App(){
                     </tr></thead>
                     <tbody>
                       {[...displayRows].sort((a,b)=>new Date(b.date||0)-new Date(a.date||0)).map(e=>{
-                        const sv=(catalog||[]).find(c=>c.id===e.serviceId);
+                        const sv=e.serviceId==='__custom_product__'?{name:e.productName||'Product',cat:'retail'}:(catalog||[]).find(c=>c.id===e.serviceId);
                         const net=(+e.retailPrice||0)-(+e.discount||0);
                         const cogs=e.cogsOverride?(+e.cogsManual||0):cogCalc(sv,e.unitsUsed,e.vialsUsed);
                         const discPct=+e.retailPrice>0&&+e.discount>0?((+e.discount/+e.retailPrice)*100).toFixed(1):(e.discountPct||'');
@@ -3367,12 +3607,14 @@ export default function App(){
         {view==='projects'&&isAdmin&&<ProjectsView projects={projects} setProjects={setProjects} providers={providers} vaUsers={vaUsers} setVaUsers={setVaUsers} creds={creds} setCreds={setCreds} emailConfig={emailConfig} month={month} setMonth={setMonth}/>}
         {view==='myprojects'&&auth?.role!=='admin'&&auth?.role!=='va'&&<StaffProjectsView projects={projects} setProjects={setProjects} provId={auth?.providerId} provName={prov?.name} catalog={catalog} clients={clients} month={month}/> }
         {view==='tasks'&&auth?.role!=='admin'&&auth?.role!=='va'&&<TasksView projects={projects} setProjects={setProjects} provId={auth?.providerId} provName={prov?.name} month={month} importantDetails={importantDetails} setImportantDetails={setImportantDetails} emailConfig={emailConfig} providerName={prov?.name} kpiData={kpiData} setKpiData={setKpiData}/>}
-        {auth?.role==='va'&&<VAView projects={projects} setProjects={setProjects} auth={auth} vaUsers={vaUsers} setVaUsers={setVaUsers} month={month} importantDetails={importantDetails} setImportantDetails={setImportantDetails} emailConfig={emailConfig}/>}
+        {auth?.role==='va'&&<VAView projects={projects} setProjects={setProjects} auth={auth} vaUsers={vaUsers} setVaUsers={setVaUsers} month={month} importantDetails={importantDetails} setImportantDetails={setImportantDetails} emailConfig={emailConfig} hoursPayroll={hoursPayroll}/>}
         {view==='kpi'&&isAdmin&&<KPIView providers={providers} kpiData={kpiData} setKpiData={setKpiData} month={month}/>}
         {view==='analytics'&&isAdmin&&<AnalyticsView expenses={expenses} payroll={payroll} providers={providers} logData={logData} hoursData={hoursData} retailData={retailData} catalog={catalog} month={month}/>}
         {view==='breakeven'&&isAdmin&&<BreakevenView expenses={expenses} payroll={payroll} providers={providers} logData={logData} hoursData={hoursData} retailData={retailData} catalog={catalog}/>}
 
 
+        {/* MY PAY SUMMARY */}
+        {view==='dashboard'&&!isAdmin&&auth?.role!=='va'&&<MyPaySummary comm={comm} prov={prov} month={month}/>}
         {/* PROVIDER KPI VIEW on staff dashboard */}
         {view==='dashboard'&&!isAdmin&&auth?.role!=='va'&&(
           <ProviderKPIView provId={auth?.providerId} provName={prov?.name} kpiData={kpiData} setKpiData={setKpiData}/>
