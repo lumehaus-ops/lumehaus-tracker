@@ -95,7 +95,8 @@ const DEF_PROV=[
 const DEF_CREDS={admins:[{id:'admin1',name:'Crystal-Dior',username:'admin',password:'LumeAdmin2025'}],providers:{lauren:{username:'lauren',password:'Lauren2025'},emy:{username:'emy',password:'Emy2025'},megan:{username:'megan',password:'Megan2025'}},vas:{}};
 
 function calcComm(entries,prov,catalog,hrs,retail){
-  const rows=entries.map(e=>{const s=e.serviceId==='__custom_product__'?{id:'__custom_product__',cat:'retail',cogsType:'flat',cogsFlat:0}:catalog.find(c=>c.id===e.serviceId);const net=Math.max(0,(+e.retailPrice||0)-(+e.discount||0));const cogs=e.cogsOverride?(+e.cogsManual||0):cogCalc(s,e.unitsUsed,e.vialsUsed);const cat=e.cat||s?.cat||'other';return{...e,net,cogs,tip:+e.tip||0,cat};});
+  const safeEntries=(entries||[]).filter(e=>e&&typeof e==='object'&&e.serviceId);
+  const rows=safeEntries.map(e=>{const s=e.serviceId==='__custom_product__'?{id:'__custom_product__',cat:'retail',cogsType:'flat',cogsFlat:0}:(catalog||[]).find(c=>c&&c.id===e.serviceId);const net=Math.max(0,(+e.retailPrice||0)-(+e.discount||0));const cogs=e.cogsOverride?(+e.cogsManual||0):cogCalc(s,e.unitsUsed,e.vialsUsed);const cat=e.cat||s?.cat||'other';return{...e,net,cogs,tip:+e.tip||0,cat};});
   const injRev=rows.filter(r=>r.cat==='injectable').reduce((s,r)=>s+r.net,0);
   const facRev=rows.filter(r=>r.cat==='facial').reduce((s,r)=>s+r.net,0);
   // Retail: pull from logged entries (cat=retail) PLUS manual lump sum
@@ -328,7 +329,7 @@ showForm?'✕ Cancel':'+ Add Expense'}</button>}
             <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(260px,1fr))',gap:'12px'}}>
               {providers.map(p=>{
                 const mk2=`${p.id}:${payrollMonth}`;
-                const ents=logData[mk2]||[];
+                const ents=(logData[mk2]||[]).filter(e=>e&&e.serviceId);
                 const hrs=hoursData[mk2]||0;
                 const ret=retailData[mk2]||{rev:0,cogs:0};
                 const calc=calcComm(ents,p,catalog,hrs,ret);
@@ -2820,7 +2821,7 @@ export default function App(){
   const[svcOpen,setSvcOpen]=useState(false);
   const[editProv,setEditProv]=useState(null);
   const[editSvc,setEditSvc]=useState(null);
-  const blankE=()=>({date:now.toISOString().split('T')[0],client:'',serviceId:'__custom_product__',productName:'',retailPrice:'',discount:'0',discountPct:'',tip:'0',unitsUsed:'',vialsUsed:'',cogsManual:'',cogsOverride:false,notes:'',editId:null,isProduct:false});
+  const blankE=()=>({date:now.toISOString().split('T')[0],client:'',serviceId:(catalog||[]).find(c=>c.active&&c.cat!=='retail')?.id||(catalog||[])[0]?.id||'',productName:'',retailPrice:'',discount:'0',discountPct:'',tip:'0',unitsUsed:'',vialsUsed:'',cogsManual:'',cogsOverride:false,notes:'',editId:null,isProduct:false});
   const blankP=()=>({id:uid(),name:'',role:'',color:'#7a9fa3',monthlyGoal:8000,hasHourly:false,compType:'commission_first',hourlyRate:0,injectableTiers:[{upTo:4999,rate:20},{upTo:99999,rate:25}],facialTiers:[{upTo:1999,rate:15},{upTo:99999,rate:20}],membershipBonus:10});
   const blankSv=()=>({id:uid(),name:'',cat:'facial',price:0,cogsType:'flat',cogsFlat:0,cogsUnit:0,cogsVial:0,unit:'session',active:true});
   const[entry,setEntry]=useState(blankE());
@@ -2876,15 +2877,15 @@ export default function App(){
   const isAdmin=auth?.role==='admin';
   const prov=providers.find(p=>p.id===(isAdmin?sid:auth?.providerId))||providers[0];
   const mk=prov?`${prov?.id}:${month}`:'none';
-  const entries=logData[mk]||[];
+  const entries=(logData[mk]||[]).filter(e=>e&&typeof e==='object');
   const hrs=hoursData[mk]||0;
   const retail=retailData[mk]||{rev:0,cogs:0};
   const comm=useMemo(()=>prov?calcComm(entries,prov,catalog,hrs,retail):{totRev:0,svcRev:0,injRev:0,facRev:0,retRev:0,totCogs:0,retCogs:0,gp:0,totTips:0,memCt:0,memB:0,retComm:0,basePay:0,iT:{rate:0},fT:{rate:0},injC:0,facC:0,totC:0,totalPay:0,above:0,hrs:0},[entries,prov,catalog,hrs,retail]);
 
   if(!ready)return<div style={{minHeight:'100vh',background:C.navy,display:'flex',alignItems:'center',justifyContent:'center',color:C.accentL,fontFamily:sans}}>Loading…</div>;
   if(!auth)return<LoginScreen providers={providers} creds={creds} onLogin={a=>{setAuth(a);if(a.role==='staff'){setSid(a.providerId);setView('log');}else if(a.role==='va'){setView('projects');}else{setView('combined');}}}/> ;
-  const selSvc=catalog.find(c=>c.id===entry.serviceId)||catalog.find(c=>c.active)||catalog[0]||null;
-  const autoCOG=selSvc?cogCalc(selSvc,entry.unitsUsed,entry.vialsUsed):0;
+  const selSvc=entry.isProduct?null:(catalog||[]).find(c=>c.id===entry.serviceId)||(catalog||[]).find(c=>c.active)||(catalog||[])[0]||null;
+  const autoCOG=(!entry.isProduct&&selSvc)?cogCalc(selSvc,entry.unitsUsed,entry.vialsUsed):0;
   const ml=new Date(month+'-02').toLocaleString('default',{month:'long',year:'numeric'});
   const gPct=pct(comm.svcRev,prov?.monthlyGoal||0);
   const weeks=[1,2,3,4,5].map(w=>({w,rev:(entries||[]).filter(e=>wk(e.date)===w).reduce((s,e)=>s+Math.max(0,(+e.retailPrice||0)-(+e.discount||0)),0),cnt:(entries||[]).filter(e=>wk(e.date)===w).length}));
@@ -3325,7 +3326,7 @@ export default function App(){
                 ?(logProvFilter==='all'
                   ?providers.flatMap(p=>(logData[`${p.id}:${month}`]||[]).map(e=>({...e,provName:p.name,provColor:p.color,provMk:`${p.id}:${month}`})))
                   :(logData[`${logProvFilter}:${month}`]||[]).map(e=>({...e,provName:providers.find(p=>p.id===logProvFilter)?.name||'',provColor:providers.find(p=>p.id===logProvFilter)?.color||C.accent,provMk:`${logProvFilter}:${month}`}))
-                ):(entries||[]).map(e=>({...e,provName:prov?.name||'',provColor:prov?.color||C.accent,provMk:mk}));
+                ):(entries||[]).filter(e=>e&&e.serviceId).map(e=>({...e,provName:prov?.name||'',provColor:prov?.color||C.accent,provMk:mk}));
 
               if(displayRows.length===0)return<div style={{textAlign:'center',padding:'36px',color:C.muted}}>No entries for {ml}.</div>;
 
