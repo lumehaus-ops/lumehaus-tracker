@@ -41,8 +41,6 @@ export function ImportantDetailsBlock({personId,personName,importantDetails,setI
     });
   }
 
-  const hasContent=details.notes||(details.links||[]).length>0;
-
   return(
     <div style={{...cardS(),border:`2px solid ${C.accent}33`,background:'#fafcfd',marginBottom:'14px'}}>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:collapsed?'0':'10px',cursor:'pointer'}} onClick={e=>{if(e.target.tagName==='BUTTON'||e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA'||e.target.tagName==='A')return;setCollapsed(!collapsed);}}>
@@ -314,6 +312,7 @@ export function ProjectsView({projects,setProjects,providers,vaUsers,setVaUsers,
                         <StatusBadge s={proj.status}/>
                         <PriBadge p={proj.priority}/>
                         {overdue&&<span style={{fontSize:'9px',fontWeight:700,color:C.danger,background:C.dangerBg,padding:'2px 8px',borderRadius:'999px'}}>⚠ Overdue</span>}
+                        {proj.createdBy&&<span style={{fontSize:'9px',fontWeight:700,color:'#7a4fa3',background:'#f0eaf8',padding:'2px 8px',borderRadius:'999px'}}>✏️ {proj.createdBy}</span>}
                       </div>
                       {proj.description&&<div style={{fontSize:'11px',color:C.muted,marginBottom:'4px'}}>{proj.description}</div>}
                       <div style={{fontSize:'10px',color:C.muted,display:'flex',gap:'14px',flexWrap:'wrap'}}>
@@ -377,22 +376,30 @@ export function ProjectsView({projects,setProjects,providers,vaUsers,setVaUsers,
                         ?<div style={{color:C.muted,fontSize:'11px',textAlign:'center',padding:'14px'}}>No tasks yet. Add the first one above.</div>
                         :(proj.tasks||[]).map(task=>(
                           <div key={task.id} style={{padding:'10px 12px',borderRadius:'8px',marginBottom:'6px',background:task.status==='Complete'?C.successBg:task.status==='Assistance Needed'?C.dangerBg:task.status==='Approval Needed'?'#f0eaf8':C.bg,border:`1px solid ${task.status==='Complete'?C.success+'33':task.status==='Assistance Needed'?C.danger+'33':task.status==='Approval Needed'?'#7a4fa355':C.border}`}}>
-                            <div style={{display:'flex',alignItems:'center',gap:'10px'}}>
-                              <input type="checkbox" checked={task.status==='Complete'} onChange={e=>updateTask(proj.id,task.id,{status:e.target.checked?'Complete':'In Progress'})} style={{flexShrink:0}}/>
+                            <div style={{display:'flex',alignItems:'flex-start',gap:'8px'}}>
+                              <input type="checkbox" checked={task.status==='Complete'} onChange={e=>updateTask(proj.id,task.id,{status:e.target.checked?'Complete':'In Progress'})} style={{flexShrink:0,marginTop:'7px'}}/>
                               <div style={{flex:1,minWidth:0}}>
-                                <div style={{fontSize:'12px',fontWeight:600,color:task.status==='Complete'?C.muted:C.text,textDecoration:task.status==='Complete'?'line-through':'none'}}>{task.title}</div>
-                                <div style={{fontSize:'9px',color:C.muted,marginTop:'1px',display:'flex',gap:'8px',flexWrap:'wrap'}}>
-                                  {task.assignedTo&&<span>👤 {allAssignees.find(a=>a.id===task.assignedTo)?.name||task.assignedTo}</span>}
-                                  {task.dueDate&&<span>📅 {task.dueDate}</span>}
+                                <input value={task.title} onChange={e=>updateTask(proj.id,task.id,{title:e.target.value})}
+                                  style={{...inp({padding:'4px 8px',fontSize:'12px',fontWeight:600,background:'rgba(255,255,255,0.7)',marginBottom:'6px'}),
+                                    textDecoration:task.status==='Complete'?'line-through':'none',
+                                    color:task.status==='Complete'?C.muted:C.text}}/>
+                                <div style={{display:'flex',gap:'6px',flexWrap:'wrap',alignItems:'center'}}>
+                                  <select value={task.assignedTo||''} onChange={e=>updateTask(proj.id,task.id,{assignedTo:e.target.value})}
+                                    style={{...sel({padding:'3px 6px',fontSize:'10px'}),flex:'1 1 110px',minWidth:'100px',maxWidth:'180px'}}>
+                                    <option value="">Unassigned</option>
+                                    {allAssignees.map(a=><option key={a.id} value={a.id}>{a.name}</option>)}
+                                  </select>
+                                  <input type="date" value={task.dueDate||''} onChange={e=>updateTask(proj.id,task.id,{dueDate:e.target.value})}
+                                    style={inp({padding:'3px 6px',fontSize:'10px',width:'130px',background:'rgba(255,255,255,0.7)',flexShrink:0})}/>
+                                  <select value={task.status} onChange={e=>updateTask(proj.id,task.id,{status:e.target.value})}
+                                    style={{...sel({padding:'3px 6px',fontSize:'10px'}),width:'150px',flexShrink:0}}>
+                                    {STATUS_OPTS.map(o=><option key={o}>{o}</option>)}
+                                  </select>
+                                  <button onClick={()=>delTask(proj.id,task.id)} style={{background:'none',border:'none',color:C.muted,cursor:'pointer',fontSize:'14px',flexShrink:0,padding:'2px 4px'}}>✕</button>
                                 </div>
+                                <input value={task.notes||''} onChange={e=>updateTask(proj.id,task.id,{notes:e.target.value})} placeholder="Add a note…"
+                                  style={{...inp({background:'rgba(255,255,255,0.7)',fontSize:'11px',padding:'5px 10px',marginTop:'6px'}),color:C.muted}}/>
                               </div>
-                              <select value={task.status} onChange={e=>updateTask(proj.id,task.id,{status:e.target.value})} style={{...sel(),padding:'3px 6px',fontSize:'10px',width:'150px',flexShrink:0}}>
-                                {STATUS_OPTS.map(o=><option key={o}>{o}</option>)}
-                              </select>
-                              <button onClick={()=>delTask(proj.id,task.id)} style={{background:'none',border:'none',color:C.muted,cursor:'pointer',fontSize:'14px',flexShrink:0}}>✕</button>
-                            </div>
-                            <div style={{marginTop:'8px',paddingLeft:'28px'}}>
-                              <input value={task.notes||''} onChange={e=>updateTask(proj.id,task.id,{notes:e.target.value})} placeholder="Add a note…" style={{...inp(),background:'rgba(255,255,255,0.7)',fontSize:'11px',padding:'5px 10px',color:C.muted}}/>
                             </div>
                           </div>
                         ))
@@ -599,7 +606,7 @@ function ProjectCalendar({projects,month,setMonth,providers,vaUsers}){
 
   const allAssignees=[
     ...providers.map(p=>({id:p.id,name:p.name,color:p.color})),
-    ,...(vaUsers||[]).map(v=>({id:v.id,name:v.name,color:'#9a6fa3'})),
+    ...(vaUsers||[]).map(v=>({id:v.id,name:v.name,color:'#9a6fa3'})),
   ];
 
   const firstDay=new Date(yr,mo-1,1).getDay();
