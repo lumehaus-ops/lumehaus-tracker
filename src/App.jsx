@@ -45,7 +45,7 @@ async function sendHoursApproval({emailConfig,vaName,weekLabel,hours,details}){
 }
 
 
-import { dbGet, dbSet, uploadReceipt, deleteReceipt } from './supabase.js';
+import { dbGet, dbSet, uploadReceipt, deleteReceipt, supabase } from './supabase.js';
 // All components inlined below
 
 const C={bg:'#f0f4f7',card:'#fff',navy:'#253649',accent:'#7a9fa3',accentL:'#9aafb2',accentBg:'#eaf2f3',text:'#1a2a35',muted:'#6b8090',border:'#dce4ea',success:'#2e9e68',successBg:'#e6f5ee',warn:'#b87d00',warnBg:'#fef5dc',danger:'#c03030',dangerBg:'#fdeaea',shadow:'0 1px 4px rgba(37,54,73,0.1)'};
@@ -94,6 +94,20 @@ const DEF_PROV=[
 ];
 const DEF_CREDS={admins:[{id:'admin1',name:'Crystal-Dior',username:'admin',password:'LumeAdmin2025'}],providers:{lauren:{username:'lauren',password:'Lauren2025'},emy:{username:'emy',password:'Emy2025'},megan:{username:'megan',password:'Megan2025'}},vas:{}};
 
+async function hashPw(pw){
+  const buf=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(pw));
+  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+function isHashed(s){return typeof s==='string'&&/^[0-9a-f]{64}$/.test(s);}
+async function migrateCredsIfNeeded(cr){
+  let changed=false;
+  for(const a of(cr.admins||[])){if(a.password&&!isHashed(a.password)){a.password=await hashPw(a.password);changed=true;}}
+  for(const pid of Object.keys(cr.providers||{})){const p=cr.providers[pid];if(p.password&&!isHashed(p.password)){p.password=await hashPw(p.password);changed=true;}}
+  for(const vid of Object.keys(cr.vas||{})){const v=cr.vas[vid];if(v&&v.password&&!isHashed(v.password)){v.password=await hashPw(v.password);changed=true;}}
+  if(changed)await dbSet('lh4:creds',JSON.stringify(cr));
+  return cr;
+}
+
 function calcComm(entries,prov,catalog,hrs,retail){
   const safeEntries=(entries||[]).filter(e=>e&&typeof e==='object'&&e.serviceId);
   const rows=safeEntries.map(e=>{const s=e.serviceId==='__custom_product__'?{id:'__custom_product__',cat:'retail',cogsType:'flat',cogsFlat:0}:(catalog||[]).find(c=>c&&c.id===e.serviceId);const net=Math.max(0,(+e.retailPrice||0)-(+e.discount||0));const cogs=e.cogsOverride?(+e.cogsManual||0):cogCalc(s,e.unitsUsed,e.vialsUsed);const cat=e.cat||s?.cat||'other';return{...e,net,cogs,tip:+e.tip||0,cat};});
@@ -126,19 +140,28 @@ function calcComm(entries,prov,catalog,hrs,retail){
   return{totRev,svcRev,injRev,facRev,retRev,loggedRetRev,loggedRetail,totCogs,retCogs,gp,totTips,memCt,memB,retComm,basePay,iT,fT,injC,facC,totC:injC+facC+memB+retComm,totalPay:basePay+injC+facC+memB+retComm,above,hrs:+hrs||0,entries:rows.length};
 }
 
-function LoginScreen({providers,creds,onLogin}){
-  const[user,setUser]=useState(''),pass=useState(''),show=useState(false),err=useState('');
-  const[pw,setPw]=pass,[showPw,setShow]=show,[errMsg,setErr]=err;
-  function attempt(){
-    const adminList = creds.admins || (creds.adminUser ? [{id:'admin1',name:'Admin',username:creds.adminUser,password:creds.adminPass}] : []);
-    const adminMatch = adminList.find(a=>a.username===user.trim()&&a.password===pw);
-    if(adminMatch){onLogin({role:'admin',providerId:null,adminId:adminMatch.id});return;}
-    // VA login
-    const vaList=Object.values(creds.vas||{});
-    const vaMatch=vaList.find(v=>v.username===user.trim()&&v.password===pw);
-    if(vaMatch){onLogin({role:'va',vaId:vaMatch.id,vaName:vaMatch.name});return;}
-    const p=providers.find(p=>{const pc=creds.providers[p.id];return pc&&pc.username===user.trim()&&pc.password===pw;});
-    if(p)onLogin({role:'staff',providerId:p.id});else setErr('Incorrect username or password.');
+function LoginScreen({providers,onLogin}){
+  const[user,setUser]=useState(''),pass=useState(''),show=useState(false),err=useState(''),busy=useState(false);
+  const[pw,setPw]=pass,[showPw,setShow]=show,[errMsg,setErr]=err,[loading,setLoading]=busy;
+  async function attempt(){
+    if(loading)return;
+    setLoading(true);setErr('');
+    try{
+      const raw=await dbGet('lh4:creds');
+      let cr=raw?JSON.parse(raw):DEF_CREDS;
+      if(cr.adminUser&&!cr.admins){cr.admins=[{id:'admin1',name:'Admin',username:cr.adminUser,password:cr.adminPass}];}
+      cr=await migrateCredsIfNeeded(cr);
+      const hash=await hashPw(pw);
+      const adminList=cr.admins||[];
+      const adminMatch=adminList.find(a=>a.username===user.trim()&&a.password===hash);
+      if(adminMatch){onLogin({role:'admin',providerId:null,adminId:adminMatch.id});setLoading(false);return;}
+      const vaList=Object.values(cr.vas||{});
+      const vaMatch=vaList.find(v=>v.username===user.trim()&&v.password===hash);
+      if(vaMatch){onLogin({role:'va',vaId:vaMatch.id,vaName:vaMatch.name});setLoading(false);return;}
+      const p=providers.find(p=>{const pc=(cr.providers||{})[p.id];return pc&&pc.username===user.trim()&&pc.password===hash;});
+      if(p){onLogin({role:'staff',providerId:p.id});}else{setErr('Incorrect username or password.');}
+    }catch(e){console.error('Login error',e);setErr('Login error, please try again.');}
+    setLoading(false);
   }
   return(
     <div style={{minHeight:'100vh',background:C.navy,display:'flex',alignItems:'center',justifyContent:'center',fontFamily:sans,padding:'20px'}}>
@@ -161,7 +184,7 @@ function LoginScreen({providers,creds,onLogin}){
             </div>
           </div>
           {errMsg&&<div style={{background:C.dangerBg,color:C.danger,borderRadius:'7px',padding:'8px 12px',fontSize:'11px',fontWeight:600,marginBottom:'12px'}}>{errMsg}</div>}
-          <button onClick={attempt} style={{...Btn('primary'),width:'100%',padding:'12px',fontSize:'13px',borderRadius:'10px'}}>Sign In</button>
+          <button onClick={attempt} disabled={loading} style={{...Btn('primary'),width:'100%',padding:'12px',fontSize:'13px',borderRadius:'10px',opacity:loading?0.7:1}}>{loading?'Signing in…':'Sign In'}</button>
         </div>
         <div style={{textAlign:'center',marginTop:'18px',fontSize:'9px',color:'rgba(154,175,178,0.4)',letterSpacing:'0.1em',fontWeight:700}}>DR. LOUIS GILBERT, MD · LUMEHAUS.HEALTH</div>
       </div>
@@ -191,6 +214,16 @@ function CombinedView({providers,logData,hoursData,retailData,catalog,month}){
   const T={rev:stats.reduce((s,x)=>s+x.c.totRev,0),pay:stats.reduce((s,x)=>s+x.c.totalPay,0),cogs:stats.reduce((s,x)=>s+x.c.totCogs,0),gp:stats.reduce((s,x)=>s+x.c.gp,0),tips:stats.reduce((s,x)=>s+x.c.totTips,0)};
   return(
     <div>
+      <div style={{background:C.navy,borderRadius:'14px',padding:'22px 28px',marginBottom:'14px',boxShadow:'0 4px 24px rgba(37,54,73,0.18)',display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:'12px'}}>
+        <div>
+          <div style={{fontSize:'10px',fontWeight:700,letterSpacing:'0.18em',textTransform:'uppercase',color:C.accentL,marginBottom:'6px'}}>Combined Revenue — {ml}</div>
+          <div style={{fontFamily:serif,fontSize:'48px',fontWeight:300,color:'#fff',lineHeight:1}}>{f0(T.rev)}</div>
+        </div>
+        <div style={{display:'flex',gap:'24px',flexWrap:'wrap'}}>
+          <div style={{textAlign:'right'}}><div style={{fontSize:'9px',fontWeight:700,letterSpacing:'0.12em',textTransform:'uppercase',color:C.accentL,marginBottom:'3px'}}>Gross Profit</div><div style={{fontFamily:serif,fontSize:'22px',fontWeight:300,color:T.gp>=0?C.accentL:'#e07070'}}>{f0(T.gp)}</div></div>
+          <div style={{textAlign:'right'}}><div style={{fontSize:'9px',fontWeight:700,letterSpacing:'0.12em',textTransform:'uppercase',color:C.accentL,marginBottom:'3px'}}>Est. Payroll</div><div style={{fontFamily:serif,fontSize:'22px',fontWeight:300,color:'#fff'}}>{f0(T.pay)}</div></div>
+        </div>
+      </div>
       <div style={cardS()}>
         <div style={lblS()}>All Providers — {ml}</div>
         <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(130px,1fr))',gap:'10px',marginTop:'10px'}}>
@@ -1287,7 +1320,7 @@ const StatusBadge=({s})=>{const cs=statusColor[s]||{bg:'#eee',color:'#888'};retu
 const PriBadge=({p})=>{const cs=priorityColor[p]||{bg:'#eee',color:'#888'};return<span style={{display:'inline-block',padding:'2px 8px',borderRadius:'999px',background:cs.bg,color:cs.color,fontSize:'9px',fontWeight:700}}>{p}</span>;};
 
 /* ── PROJECTS VIEW (admin) ── */
-export function ProjectsView({projects,setProjects,providers,vaUsers,setVaUsers,creds,setCreds,emailConfig}){
+export function ProjectsView({projects,setProjects,providers,vaUsers,setVaUsers,onSaveVACreds,emailConfig}){
   const[tab,setTab]=useState('projects');
   const[showForm,setShowForm]=useState(false);
   const[editId,setEditId]=useState(null);
@@ -1365,11 +1398,12 @@ export function ProjectsView({projects,setProjects,providers,vaUsers,setVaUsers,
   const[vaForm,setVaForm]=useState(blankVA());
   const[showVAForm,setShowVAForm]=useState(false);
 
-  function saveVA(){
+  async function saveVA(){
     if(!vaForm.name||!vaForm.username)return;
-    const v2={...vaForm,id:vaForm.id||uid()};
-    setVaUsers(prev=>{const exists=prev.find(x=>x.id===v2.id);return exists?prev.map(x=>x.id===v2.id?v2:x):[...prev,v2];});
-    setCreds(c=>({...c,vas:{...(c.vas||{}),[v2.id]:{id:v2.id,name:v2.name,username:v2.username,password:v2.password}}}));
+    const v2={id:vaForm.id||uid(),name:vaForm.name,role:vaForm.role,hourlyRate:+vaForm.hourlyRate||0,username:vaForm.username,hoursLogged:{}};
+    setVaUsers(prev=>{const exists=prev.find(x=>x.id===v2.id);return exists?prev.map(x=>x.id===v2.id?{...x,...v2}:x):[...prev,v2];});
+    const pwHash=await hashPw(vaForm.password||'VA2025');
+    if(onSaveVACreds)onSaveVACreds(v2.id,v2.name,v2.username,pwHash);
     setVaForm(blankVA());setShowVAForm(false);
   }
 
@@ -1939,12 +1973,15 @@ export function VAView({projects,setProjects,auth,vaUsers,setVaUsers,month,impor
 
 
 /* ─── VA FORM INLINE (used in Providers tab) ────────────── */
-function VAFormInline({vaUsers,setVaUsers,creds,setCreds}){
-  const[f,setF]=useState({id:uid(),name:'',role:'Virtual Assistant',hourlyRate:0,username:'',password:'VA2025'});
-  function save(){
+function VAFormInline({vaUsers,setVaUsers,onSave,onCancel}){
+  const[f,setF]=useState({id:uid(),name:'',role:'Virtual Assistant',hourlyRate:0,username:'',password:''});
+  async function save(){
     if(!f.name||!f.username)return;
-    setVaUsers(p=>[...p,f]);
-    setCreds(c=>({...c,_showVAForm:false,vas:{...(c.vas||{}),[f.id]:{id:f.id,name:f.name,username:f.username,password:f.password}}}));
+    const newVA={id:f.id,name:f.name,role:f.role,hourlyRate:+f.hourlyRate||0,username:f.username,hoursLogged:{}};
+    setVaUsers(p=>[...p,newVA]);
+    const pwHash=await hashPw(f.password||'VA2025');
+    if(onSave)onSave(f.id,f.name,f.username,pwHash);
+    setF({id:uid(),name:'',role:'Virtual Assistant',hourlyRate:0,username:'',password:''});
   }
   return(
     <div style={{background:C.bg,borderRadius:'10px',padding:'14px',marginBottom:'12px',border:`1px solid ${C.border}`}}>
@@ -1953,7 +1990,7 @@ function VAFormInline({vaUsers,setVaUsers,creds,setCreds}){
         <div><label style={lblS()}>Role</label><input value={f.role} onChange={e=>setF(p=>({...p,role:e.target.value}))} placeholder="Virtual Assistant" style={inp()}/></div>
         <div><label style={lblS()}>Hourly Rate ($)</label><input type="number" value={f.hourlyRate} onChange={e=>setF(p=>({...p,hourlyRate:+e.target.value}))} style={inp()}/></div>
         <div><label style={lblS()}>Username *</label><input value={f.username} onChange={e=>setF(p=>({...p,username:e.target.value}))} style={inp()}/></div>
-        <div><label style={lblS()}>Password</label><input value={f.password} onChange={e=>setF(p=>({...p,password:e.target.value}))} style={inp()}/></div>
+        <div><label style={lblS()}>Password</label><input value={f.password} onChange={e=>setF(p=>({...p,password:e.target.value}))} placeholder="Leave blank for default (VA2025)" style={inp()}/></div>
       </div>
       <button style={Btn('primary')} onClick={save}>✓ Add VA</button>
     </div>
@@ -2737,7 +2774,10 @@ export default function App(){
   const[sid,setSid]=useState('lauren');
   const[providers,setProviders]=useState(DEF_PROV);
   const[catalog,setCatalog]=useState(DEF_CAT);
-  const[creds,setCreds]=useState(DEF_CREDS);
+  const[adminCreds,setAdminCreds]=useState(null);
+  const[newPwds,setNewPwds]=useState({});
+  const[showVAFormAdmin,setShowVAFormAdmin]=useState(false);
+  const adminCredsInitRef=useRef(false);
   const[logData,setLogData]=useState({});
   const[hoursData,setHoursData]=useState({});
   const[retailData,setRetailData]=useState({});
@@ -2810,15 +2850,6 @@ export default function App(){
           dbSet('lh4:vausers',JSON.stringify(locVA));
         }
         const pr=await dbGet('lh4:payroll');if(pr)setPayroll(JSON.parse(pr));
-        const cr=await dbGet('lh4:creds');
-        if(cr){
-          const parsed=JSON.parse(cr);
-          // Migrate old format to new format if needed
-          if(parsed.adminUser && !parsed.admins){
-            parsed.admins=[{id:'admin1',name:'Admin',username:parsed.adminUser,password:parsed.adminPass}];
-          }
-          setCreds(parsed);
-        }
       }catch(e){console.error('Load error',e);}
       setReady(true);
     })();
@@ -2828,7 +2859,22 @@ export default function App(){
   useEffect(()=>{if(ready)dbSet('lh4:ret',JSON.stringify(retailData));},[retailData,ready]);
   useEffect(()=>{if(ready)dbSet('lh4:prov',JSON.stringify(providers));},[providers,ready]);
   useEffect(()=>{if(ready)dbSet('lh4:cat',JSON.stringify(catalog));},[catalog,ready]);
-  useEffect(()=>{if(ready)dbSet('lh4:creds',JSON.stringify(creds));},[creds,ready]);
+  // Lazy-load adminCreds only after admin logs in — never sits in state during pre-login or staff sessions
+  useEffect(()=>{
+    if(!auth||auth.role!=='admin'||adminCreds!==null)return;
+    (async()=>{
+      const raw=await dbGet('lh4:creds');
+      let cr=raw?JSON.parse(raw):DEF_CREDS;
+      if(cr.adminUser&&!cr.admins){cr.admins=[{id:'admin1',name:'Admin',username:cr.adminUser,password:cr.adminPass}];}
+      setAdminCreds(cr);
+    })();
+  },[auth,adminCreds]);
+  // Save adminCreds when changed, skipping the initial load to avoid a redundant write
+  useEffect(()=>{
+    if(adminCreds===null)return;
+    if(!adminCredsInitRef.current){adminCredsInitRef.current=true;return;}
+    dbSet('lh4:creds',JSON.stringify(adminCreds));
+  },[adminCreds]);
   useEffect(()=>{if(ready)dbSet('lh4:expenses',JSON.stringify(expenses));},[expenses,ready]);
   useEffect(()=>{if(ready)dbSet('lh4:details',JSON.stringify(importantDetails));},[importantDetails,ready]);
   useEffect(()=>{if(ready)dbSet('lh4:clients',JSON.stringify(clients));},[clients,ready]);
@@ -2843,6 +2889,30 @@ export default function App(){
   },[vaUsers,ready]);
   useEffect(()=>{if(ready)dbSet('lh4:payroll',JSON.stringify(payroll));},[payroll,ready]);
 
+  useEffect(()=>{
+    if(!ready)return;
+    const handle=payload=>{
+      try{
+        const incoming=JSON.parse(payload.new.value);
+        setLogData(prev=>{
+          const merged={...prev};
+          Object.entries(incoming).forEach(([k,v])=>{
+            if(Array.isArray(v)&&Array.isArray(merged[k])){
+              merged[k]=v.length>=merged[k].length?v:merged[k];
+            }else{
+              merged[k]=v;
+            }
+          });
+          return merged;
+        });
+      }catch(e){console.warn('Real-time parse error',e);}
+    };
+    const ch=supabase.channel('lh4-live')
+      .on('postgres_changes',{event:'*',schema:'public',table:'app_data',filter:'key=eq.lh4:data'},handle)
+      .subscribe();
+    return()=>supabase.removeChannel(ch);
+  },[ready]);
+
   const isAdmin=auth?.role==='admin';
   const prov=providers.find(p=>p.id===(isAdmin?sid:auth?.providerId))||providers[0];
   const mk=prov?`${prov?.id}:${month}`:'none';
@@ -2852,7 +2922,7 @@ export default function App(){
   const comm=useMemo(()=>prov?calcComm(entries,prov,catalog,hrs,retail):{totRev:0,svcRev:0,injRev:0,facRev:0,retRev:0,totCogs:0,retCogs:0,gp:0,totTips:0,memCt:0,memB:0,retComm:0,basePay:0,iT:{rate:0},fT:{rate:0},injC:0,facC:0,totC:0,totalPay:0,above:0,hrs:0},[entries,prov,catalog,hrs,retail]);
 
   if(!ready)return<div style={{minHeight:'100vh',background:C.navy,display:'flex',alignItems:'center',justifyContent:'center',color:C.accentL,fontFamily:sans}}>Loading…</div>;
-  if(!auth)return<LoginScreen providers={providers} creds={creds} onLogin={a=>{setAuth(a);if(a.role==='staff'){setSid(a.providerId);setView('log');}else if(a.role==='va'){setView('projects');}else{setView('combined');}}}/> ;
+  if(!auth)return<LoginScreen providers={providers} onLogin={a=>{setAuth(a);if(a.role==='staff'){setSid(a.providerId);setView('log');}else if(a.role==='va'){setView('projects');}else{setView('combined');}}}/> ;
   const selSvc=entry.isProduct?null:(catalog||[]).find(c=>c.id===entry.serviceId)||(catalog||[]).find(c=>c.active)||(catalog||[])[0]||null;
   const autoCOG=(!entry.isProduct&&selSvc)?cogCalc(selSvc,entry.unitsUsed,entry.vialsUsed):0;
   const ml=new Date(month+'-02').toLocaleString('default',{month:'long',year:'numeric'});
@@ -2983,12 +3053,36 @@ export default function App(){
     // Scroll to form
     setTimeout(()=>window.scrollTo({top:0,behavior:'smooth'}),100);
   }
-  function saveProv(){
+  async function saveProv(){
     if(!newProv.name)return;
     const id=uid();
     setProviders(p=>[...p,{...newProv,id}]);
-    setCreds(c=>({...c,providers:{...c.providers,[id]:{username:newProv.name.toLowerCase().split(' ')[0],password:'LH2025'}}}));
+    const defPwHash=await hashPw('LH2025');
+    setAdminCreds(c=>({...(c||DEF_CREDS),providers:{...((c||DEF_CREDS).providers||{}),[id]:{username:newProv.name.toLowerCase().split(' ')[0],password:defPwHash}}}));
     setNewProv(blankP());setProvOpen(false);showToast('Provider added ✓');
+  }
+  async function setPwForProvider(provId,pw){
+    if(!pw)return;
+    const hash=await hashPw(pw);
+    const pc=(adminCreds?.providers||{})[provId]||{};
+    setAdminCreds(c=>({...(c||DEF_CREDS),providers:{...((c||DEF_CREDS).providers||{}),[provId]:{...pc,password:hash}}}));
+    setNewPwds(p=>{const n={...p};delete n[`prov:${provId}`];return n;});
+    showToast('Password updated ✓');
+  }
+  async function setPwForVA(vaId,pw){
+    if(!pw)return;
+    const hash=await hashPw(pw);
+    const vc=(adminCreds?.vas||{})[vaId]||{};
+    setAdminCreds(c=>({...(c||DEF_CREDS),vas:{...((c||DEF_CREDS).vas||{}),[vaId]:{...vc,password:hash}}}));
+    setNewPwds(p=>{const n={...p};delete n[`va:${vaId}`];return n;});
+    showToast('Password updated ✓');
+  }
+  async function setPwForAdmin(idx,pw){
+    if(!pw)return;
+    const hash=await hashPw(pw);
+    setAdminCreds(c=>{const ac=c||DEF_CREDS;const admins=[...(ac.admins||[])];admins[idx]={...admins[idx],password:hash};return{...ac,admins};});
+    setNewPwds(p=>{const n={...p};delete n[`admin:${idx}`];return n;});
+    showToast('Password updated ✓');
   }
   function saveSvc(){if(!newSvc.name)return;setCatalog(p=>[...p,{...newSvc,id:uid()}]);setNewSvc(blankSv());setSvcOpen(false);}
 
@@ -3507,7 +3601,7 @@ export default function App(){
             </div>
             {providers.map(p=>{
               const ed=editProv===p.id;
-              const pc=creds.providers[p.id]||{username:'',password:''};
+              const pc=(adminCreds?.providers||{})[p.id]||{username:'',password:''};
               return(
                 <div key={p.id} style={cardS()}>
                   <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:ed?'18px':'0'}}>
@@ -3540,10 +3634,10 @@ export default function App(){
                       <div style={{background:C.warnBg,border:`1px solid ${C.warn}44`,borderRadius:'10px',padding:'14px'}}>
                         <div style={{fontSize:'9px',fontWeight:700,letterSpacing:'0.1em',textTransform:'uppercase',color:C.warn,marginBottom:'10px'}}>🔑 Staff Login Credentials</div>
                         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}>
-                          <div><label style={{...lblS(),color:C.warn}}>Username</label><input value={pc.username} onChange={e=>setCreds(c=>({...c,providers:{...c.providers,[p.id]:{...pc,username:e.target.value}}}))} style={inp()}/></div>
-                          <div><label style={{...lblS(),color:C.warn}}>Password</label><input value={pc.password} onChange={e=>setCreds(c=>({...c,providers:{...c.providers,[p.id]:{...pc,password:e.target.value}}}))} style={inp()}/></div>
+                          <div><label style={{...lblS(),color:C.warn}}>Username</label><input value={pc.username} onChange={e=>setAdminCreds(c=>({...(c||DEF_CREDS),providers:{...((c||DEF_CREDS).providers||{}),[p.id]:{...pc,username:e.target.value}}}))} style={inp()}/></div>
+                          <div><label style={{...lblS(),color:C.warn}}>New Password</label><div style={{display:'flex',gap:'6px'}}><input value={newPwds[`prov:${p.id}`]||''} onChange={e=>setNewPwds(pw=>({...pw,[`prov:${p.id}`]:e.target.value}))} placeholder={pc.password?'●●●●●● (enter new to change)':'Enter password'} style={inp()}/><button style={Btn('secondary',{whiteSpace:'nowrap',padding:'8px 12px',fontSize:'11px'})} onClick={()=>setPwForProvider(p.id,newPwds[`prov:${p.id}`]||'')}>Set</button></div></div>
                         </div>
-                        <div style={{fontSize:'10px',color:C.warn,marginTop:'8px'}}>⚠ Share credentials directly with the provider only. Changes auto-save.</div>
+                        <div style={{fontSize:'10px',color:C.warn,marginTop:'8px'}}>⚠ Share credentials directly with the provider only. Username auto-saves; click Set to update password.</div>
                       </div>
                     </div>
                   )}
@@ -3565,7 +3659,7 @@ export default function App(){
                     const sup=fromSupabase?JSON.parse(fromSupabase):[];
                     const loc=fromLocal?JSON.parse(fromLocal):[];
                     // Also check old creds.vas for any VAs stored there
-                    const fromCreds=Object.entries(creds.vas||{}).map(([id,c])=>({id,name:c.name||id,role:'Virtual Assistant',hourlyRate:0,...c}));
+                    const fromCreds=Object.entries(adminCreds?.vas||{}).map(([id,c])=>({id,name:c.name||id,role:'Virtual Assistant',hourlyRate:0,...c}));
                     const all=[...sup,...loc,...fromCreds];
                     // Dedupe by id
                     const merged=Object.values(all.reduce((a,v)=>v?.id?({...a,[v.id]:v}):a,{}));
@@ -3574,20 +3668,20 @@ export default function App(){
                     dbSet('lh4:vausers',JSON.stringify(merged));
                     showToast(merged.length+' VA(s) recovered ✓');
                   }}>🔄 Recover VA Data</button>
-                  <button style={Btn('primary')} onClick={()=>setCreds(c=>({...c,_showVAForm:!c._showVAForm}))}>{creds._showVAForm?'✕ Cancel':'+ Add VA'}</button>
+                  <button style={Btn('primary')} onClick={()=>setShowVAFormAdmin(v=>!v)}>{showVAFormAdmin?'✕ Cancel':'+ Add VA'}</button>
                 </div>
               </div>
 
-              {creds._showVAForm&&(
+              {showVAFormAdmin&&(
                 <div style={{background:C.bg,borderRadius:'10px',padding:'14px',marginBottom:'14px',border:`1px solid ${C.border}`}}>
-                  <VAFormInline vaUsers={vaUsers} setVaUsers={setVaUsers} creds={creds} setCreds={setCreds}/>
+                  <VAFormInline vaUsers={vaUsers} setVaUsers={setVaUsers} onSave={(id,name,username,pwHash)=>{setAdminCreds(c=>({...(c||DEF_CREDS),vas:{...((c||DEF_CREDS).vas||{}),[id]:{id,name,username,password:pwHash}}}));setShowVAFormAdmin(false);}} onCancel={()=>setShowVAFormAdmin(false)}/>
                 </div>
               )}
 
               {vaUsers.length===0
                 ?<div style={{textAlign:'center',padding:'20px',color:C.muted,fontSize:'12px'}}>No VA accounts yet. Click "+ Add VA" to create one.</div>
                 :vaUsers.map(va=>{
-                  const pc=(creds.vas||{})[va.id]||{};
+                  const pc=(adminCreds?.vas||{})[va.id]||{};
                   return(
                     <div key={va.id} style={{background:C.bg,borderRadius:'10px',padding:'14px',marginBottom:'10px',border:`1px solid ${C.border}`,borderLeft:'4px solid #9a6fa3'}}>
                       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'10px',flexWrap:'wrap',gap:'8px'}}>
@@ -3604,8 +3698,8 @@ export default function App(){
                         <div><label style={lblS()}>Name</label><input value={va.name||''} onChange={e=>setVaUsers(p=>p.map(x=>x.id===va.id?{...x,name:e.target.value}:x))} style={inp()}/></div>
                         <div><label style={lblS()}>Role</label><input value={va.role||''} onChange={e=>setVaUsers(p=>p.map(x=>x.id===va.id?{...x,role:e.target.value}:x))} style={inp()}/></div>
                         <div><label style={lblS()}>Hourly Rate ($/hr)</label><input type="number" value={va.hourlyRate||0} onChange={e=>setVaUsers(p=>p.map(x=>x.id===va.id?{...x,hourlyRate:+e.target.value}:x))} style={inp()}/></div>
-                        <div><label style={lblS()}>Username</label><input value={pc.username||''} onChange={e=>setCreds(c=>({...c,vas:{...(c.vas||{}),[va.id]:{...pc,username:e.target.value}}}))} style={inp()}/></div>
-                        <div><label style={lblS()}>Password</label><input value={pc.password||''} onChange={e=>setCreds(c=>({...c,vas:{...(c.vas||{}),[va.id]:{...pc,password:e.target.value}}}))} style={inp()}/></div>
+                        <div><label style={lblS()}>Username</label><input value={pc.username||''} onChange={e=>setAdminCreds(c=>({...(c||DEF_CREDS),vas:{...((c||DEF_CREDS).vas||{}),[va.id]:{...pc,username:e.target.value}}}))} style={inp()}/></div>
+                        <div><label style={lblS()}>New Password</label><div style={{display:'flex',gap:'6px'}}><input value={newPwds[`va:${va.id}`]||''} onChange={e=>setNewPwds(pw=>({...pw,[`va:${va.id}`]:e.target.value}))} placeholder={pc.password?'●●●●●● (enter new to change)':'Enter password'} style={inp()}/><button style={Btn('secondary',{whiteSpace:'nowrap',padding:'8px 12px',fontSize:'11px'})} onClick={()=>setPwForVA(va.id,newPwds[`va:${va.id}`]||'')}>Set</button></div></div>
                       </div>
                     </div>
                   );
@@ -3628,25 +3722,25 @@ export default function App(){
                   <div style={lblS()}>🔐 Admin Accounts</div>
                   <div style={{fontSize:'10px',color:C.muted,marginTop:'2px'}}>Admins have full access to all data, pay rates, and settings. Keep credentials secure.</div>
                 </div>
-                <button style={Btn('primary',{fontSize:'11px'})} onClick={()=>setCreds(c=>({...c,admins:[...(c.admins||[]),{id:uid(),name:'New Admin',username:'admin'+Date.now(),password:'LH2025'}]}))}>+ Add Admin</button>
+                <button style={Btn('primary',{fontSize:'11px'})} onClick={async()=>{const defPwHash=await hashPw('LH2025');setAdminCreds(c=>({...(c||DEF_CREDS),admins:[...((c||DEF_CREDS).admins||[]),{id:uid(),name:'New Admin',username:'admin'+Date.now(),password:defPwHash}]}));}}>+ Add Admin</button>
               </div>
-              {(creds.admins||[]).map((admin,i)=>(
+              {(adminCreds?.admins||[]).map((admin,i)=>(
                 <div key={admin.id} style={{background:C.bg,borderRadius:'10px',padding:'14px',marginBottom:'10px',border:`1px solid ${C.border}`}}>
                   <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr auto',gap:'10px',alignItems:'end'}}>
-                    <div><label style={lblS()}>Name</label><input value={admin.name} onChange={e=>setCreds(c=>({...c,admins:c.admins.map((a,j)=>j===i?{...a,name:e.target.value}:a)}))} style={inp()}/></div>
-                    <div><label style={lblS()}>Username</label><input value={admin.username} onChange={e=>setCreds(c=>({...c,admins:c.admins.map((a,j)=>j===i?{...a,username:e.target.value}:a)}))} style={inp()}/></div>
-                    <div><label style={lblS()}>Password</label><input value={admin.password} onChange={e=>setCreds(c=>({...c,admins:c.admins.map((a,j)=>j===i?{...a,password:e.target.value}:a)}))} style={inp()}/></div>
-                    <button disabled={(creds.admins||[]).length<=1} onClick={()=>setCreds(c=>({...c,admins:c.admins.filter((_,j)=>j!==i)}))} style={{...Btn('danger',{padding:'8px 10px',fontSize:'11px'}),opacity:(creds.admins||[]).length<=1?0.4:1}}>Remove</button>
+                    <div><label style={lblS()}>Name</label><input value={admin.name} onChange={e=>setAdminCreds(c=>({...(c||DEF_CREDS),admins:(c||DEF_CREDS).admins.map((a,j)=>j===i?{...a,name:e.target.value}:a)}))} style={inp()}/></div>
+                    <div><label style={lblS()}>Username</label><input value={admin.username} onChange={e=>setAdminCreds(c=>({...(c||DEF_CREDS),admins:(c||DEF_CREDS).admins.map((a,j)=>j===i?{...a,username:e.target.value}:a)}))} style={inp()}/></div>
+                    <div><label style={lblS()}>New Password</label><div style={{display:'flex',gap:'6px'}}><input value={newPwds[`admin:${i}`]||''} onChange={e=>setNewPwds(pw=>({...pw,[`admin:${i}`]:e.target.value}))} placeholder={admin.password?'●●●●●● (enter new to change)':'Enter password'} style={inp()}/><button style={Btn('secondary',{whiteSpace:'nowrap',padding:'8px 12px',fontSize:'11px'})} onClick={()=>setPwForAdmin(i,newPwds[`admin:${i}`]||'')}>Set</button></div></div>
+                    <button disabled={(adminCreds?.admins||[]).length<=1} onClick={()=>setAdminCreds(c=>({...(c||DEF_CREDS),admins:(c||DEF_CREDS).admins.filter((_,j)=>j!==i)}))} style={{...Btn('danger',{padding:'8px 10px',fontSize:'11px'}),opacity:(adminCreds?.admins||[]).length<=1?0.4:1}}>Remove</button>
                   </div>
                 </div>
               ))}
-              <div style={{fontSize:'10px',color:C.warn,padding:'8px 12px',background:C.warnBg,borderRadius:'7px',marginTop:'4px'}}>⚠ Must keep at least one admin account. Changes auto-save.</div>
+              <div style={{fontSize:'10px',color:C.warn,padding:'8px 12px',background:C.warnBg,borderRadius:'7px',marginTop:'4px'}}>⚠ Must keep at least one admin account. Name/username auto-save; click Set to update password.</div>
             </div>
           </>
         )}
 
         {view==='expenses'&&isAdmin&&<ExpensesView expenses={expenses} setExpenses={setExpenses} month={month} payroll={payroll} setPayroll={setPayroll} providers={providers} logData={logData} hoursData={hoursData} retailData={retailData} catalog={catalog}/>}
-        {view==='projects'&&isAdmin&&<ProjectsView projects={projects} setProjects={setProjects} providers={providers} vaUsers={vaUsers} setVaUsers={setVaUsers} creds={creds} setCreds={setCreds} emailConfig={emailConfig} month={month} setMonth={setMonth}/>}
+        {view==='projects'&&isAdmin&&<ProjectsView projects={projects} setProjects={setProjects} providers={providers} vaUsers={vaUsers} setVaUsers={setVaUsers} onSaveVACreds={(id,name,username,pwHash)=>setAdminCreds(c=>({...(c||DEF_CREDS),vas:{...((c||DEF_CREDS).vas||{}),[id]:{id,name,username,password:pwHash}}}))} emailConfig={emailConfig} month={month} setMonth={setMonth}/>}
         {view==='myprojects'&&auth?.role!=='admin'&&auth?.role!=='va'&&<StaffProjectsView projects={projects} setProjects={setProjects} provId={auth?.providerId} provName={prov?.name} catalog={catalog} clients={clients} month={month}/> }
         {view==='tasks'&&auth?.role!=='admin'&&auth?.role!=='va'&&<TasksView projects={projects} setProjects={setProjects} provId={auth?.providerId} provName={prov?.name} month={month} importantDetails={importantDetails} setImportantDetails={setImportantDetails} emailConfig={emailConfig} providerName={prov?.name} kpiData={kpiData} setKpiData={setKpiData}/>}
         {auth?.role==='va'&&<VAView projects={projects} setProjects={setProjects} auth={auth} vaUsers={vaUsers} setVaUsers={setVaUsers} month={month} importantDetails={importantDetails} setImportantDetails={setImportantDetails} emailConfig={emailConfig} hoursPayroll={hoursPayroll}/>}
