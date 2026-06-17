@@ -94,6 +94,15 @@ const DEF_PROV=[
 ];
 const DEF_CREDS={admins:[{id:'admin1',name:'Crystal-Dior',username:'admin',password:'LumeAdmin2025'}],providers:{lauren:{username:'lauren',password:'Lauren2025'},emy:{username:'emy',password:'Emy2025'},megan:{username:'megan',password:'Megan2025'}},vas:{}};
 
+// Maps Supabase Auth emails → app roles and provider/VA identities
+const EMAIL_ROLE_MAP = {
+  'lumehaus@cornerstonemd.health':      {role:'admin',  adminId:'admin1'},
+  'lumehausmedspa@gmail.com':           {role:'staff',  providerId:'lauren', vaName:'Lauren Greene'},
+  'hjbtampus@gmail.com':                {role:'va',     vaUsername:'HoneyT',  vaName:'Honey Tampus'},
+  'lmoreaux@cornerstonemd.health':      {role:'va',     vaUsername:'LaurenM', vaName:'Lauren M'},
+  'michaeltampus1123@gmail.com':        {role:'va',     vaUsername:'MichaelT',vaName:'Michael T'},
+};
+
 async function hashPw(pw){
   const buf=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(pw));
   return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
@@ -140,26 +149,21 @@ function calcComm(entries,prov,catalog,hrs,retail){
   return{totRev,svcRev,injRev,facRev,retRev,loggedRetRev,loggedRetail,totCogs,retCogs,gp,totTips,memCt,memB,retComm,basePay,iT,fT,injC,facC,totC:injC+facC+memB+retComm,totalPay:basePay+injC+facC+memB+retComm,above,hrs:+hrs||0,entries:rows.length};
 }
 
-function LoginScreen({providers,onLogin}){
-  const[user,setUser]=useState(''),pass=useState(''),show=useState(false),err=useState(''),busy=useState(false);
-  const[pw,setPw]=pass,[showPw,setShow]=show,[errMsg,setErr]=err,[loading,setLoading]=busy;
+function LoginScreen(){
+  const[email,setEmail]=useState('');
+  const[pw,setPw]=useState('');
+  const[showPw,setShow]=useState(false);
+  const[errMsg,setErr]=useState('');
+  const[loading,setLoading]=useState(false);
   async function attempt(){
     if(loading)return;
     setLoading(true);setErr('');
     try{
-      const raw=await dbGet('lh4:creds');
-      let cr=raw?JSON.parse(raw):DEF_CREDS;
-      if(cr.adminUser&&!cr.admins){cr.admins=[{id:'admin1',name:'Admin',username:cr.adminUser,password:cr.adminPass}];}
-      cr=await migrateCredsIfNeeded(cr);
-      const hash=await hashPw(pw);
-      const adminList=cr.admins||[];
-      const adminMatch=adminList.find(a=>a.username===user.trim()&&a.password===hash);
-      if(adminMatch){onLogin({role:'admin',providerId:null,adminId:adminMatch.id});setLoading(false);return;}
-      const vaList=Object.values(cr.vas||{});
-      const vaMatch=vaList.find(v=>v.username===user.trim()&&v.password===hash);
-      if(vaMatch){onLogin({role:'va',vaId:vaMatch.id,vaName:vaMatch.name});setLoading(false);return;}
-      const p=providers.find(p=>{const pc=(cr.providers||{})[p.id];return pc&&pc.username===user.trim()&&pc.password===hash;});
-      if(p){onLogin({role:'staff',providerId:p.id});}else{setErr('Incorrect username or password.');}
+      const{error}=await supabase.auth.signInWithPassword({email:email.trim().toLowerCase(),password:pw});
+      if(error){
+        setErr(error.message==='Invalid login credentials'?'Incorrect email or password.':error.message);
+      }
+      // On success: onAuthStateChange in App() fires SIGNED_IN and resolves the role
     }catch(e){console.error('Login error',e);setErr('Login error, please try again.');}
     setLoading(false);
   }
@@ -173,13 +177,13 @@ function LoginScreen({providers,onLogin}){
         </div>
         <div style={{background:'#fff',borderRadius:'16px',padding:'28px',boxShadow:'0 20px 60px rgba(0,0,0,0.3)'}}>
           <div style={{marginBottom:'14px'}}>
-            <label style={lblS()}>Username</label>
-            <input value={user} onChange={e=>{setUser(e.target.value);setErr('');}} onKeyDown={e=>e.key==='Enter'&&attempt()} placeholder="Enter username" style={inp()}/>
+            <label style={lblS()}>Email</label>
+            <input type="email" value={email} onChange={e=>{setEmail(e.target.value);setErr('');}} onKeyDown={e=>e.key==='Enter'&&attempt()} placeholder="Enter your email" style={inp()} autoComplete="email"/>
           </div>
           <div style={{marginBottom:'18px'}}>
             <label style={lblS()}>Password</label>
             <div style={{position:'relative'}}>
-              <input type={showPw?'text':'password'} value={pw} onChange={e=>{setPw(e.target.value);setErr('');}} onKeyDown={e=>e.key==='Enter'&&attempt()} placeholder="Enter password" style={inp({paddingRight:'40px'})}/>
+              <input type={showPw?'text':'password'} value={pw} onChange={e=>{setPw(e.target.value);setErr('');}} onKeyDown={e=>e.key==='Enter'&&attempt()} placeholder="Enter password" style={inp({paddingRight:'40px'})} autoComplete="current-password"/>
               <button onClick={()=>setShow(s=>!s)} style={{position:'absolute',right:'10px',top:'50%',transform:'translateY(-50%)',background:'none',border:'none',cursor:'pointer',color:C.muted,fontSize:'13px'}}>{showPw?'🙈':'👁'}</button>
             </div>
           </div>
@@ -2778,6 +2782,8 @@ export default function App(){
   const[newPwds,setNewPwds]=useState({});
   const[showVAFormAdmin,setShowVAFormAdmin]=useState(false);
   const adminCredsInitRef=useRef(false);
+  const[sessionChecked,setSessionChecked]=useState(false);
+  const vaUsersRef=useRef([]);
   const[logData,setLogData]=useState({});
   const[hoursData,setHoursData]=useState({});
   const[retailData,setRetailData]=useState({});
@@ -2830,6 +2836,7 @@ export default function App(){
         const hp=await dbGet('lh4:hrspay');if(hp)setHoursPayroll(JSON.parse(hp));
         const ec=await dbGet('lh4:email');if(ec){const parsed=JSON.parse(ec);setEmailConfig(parsed);if(parsed.publicKey)initEmail(parsed.publicKey);}
         const pj=await dbGet('lh4:projects');if(pj)setProjects(JSON.parse(pj));
+        let loadedVaUsers=[];
         const va=await dbGet('lh4:vausers');
         const localVA=localStorage.getItem('lh4:vausers');
         if(va&&localVA){
@@ -2840,18 +2847,23 @@ export default function App(){
             ...(supVA||[]).reduce((a,v)=>({...a,[v.id]:v}),{}),
             ...(locVA||[]).reduce((a,v)=>({...a,[v.id]:v}),{}),
           });
-          setVaUsers(merged);
+          loadedVaUsers=merged;
+          setVaUsers(merged);vaUsersRef.current=merged;
           // Sync merged back to Supabase
           dbSet('lh4:vausers',JSON.stringify(merged));
-        } else if(va){setVaUsers(JSON.parse(va));}
+        } else if(va){loadedVaUsers=JSON.parse(va);setVaUsers(loadedVaUsers);vaUsersRef.current=loadedVaUsers;}
         else if(localVA){
           const locVA=JSON.parse(localVA);
-          setVaUsers(locVA);
+          loadedVaUsers=locVA;
+          setVaUsers(locVA);vaUsersRef.current=locVA;
           dbSet('lh4:vausers',JSON.stringify(locVA));
         }
         const pr=await dbGet('lh4:payroll');if(pr)setPayroll(JSON.parse(pr));
+        // Check for an existing Supabase Auth session (auto-login on page reload)
+        const{data:{session}}=await supabase.auth.getSession();
+        if(session?.user?.email)resolveAuthFromEmail(session.user.email,loadedVaUsers);
       }catch(e){console.error('Load error',e);}
-      setReady(true);
+      setReady(true);setSessionChecked(true);
     })();
   },[]);
   useEffect(()=>{if(ready)dbSet('lh4:data',JSON.stringify(logData));},[logData,ready]);
@@ -2888,6 +2900,22 @@ export default function App(){
     }
   },[vaUsers,ready]);
   useEffect(()=>{if(ready)dbSet('lh4:payroll',JSON.stringify(payroll));},[payroll,ready]);
+  // Keep vaUsersRef in sync so the auth state change handler always sees current VA list
+  useEffect(()=>{vaUsersRef.current=vaUsers;},[vaUsers]);
+  // Handle Supabase Auth state changes after initial load (sign-in via LoginScreen, sign-out)
+  useEffect(()=>{
+    const{data:{subscription}}=supabase.auth.onAuthStateChange((event,session)=>{
+      if(event==='SIGNED_IN'&&session?.user?.email){
+        resolveAuthFromEmail(session.user.email);
+      } else if(event==='SIGNED_OUT'){
+        setAuth(null);
+        setAdminCreds(null);
+        adminCredsInitRef.current=false;
+        setView('dashboard');
+      }
+    });
+    return()=>subscription.unsubscribe();
+  },[]);
 
   useEffect(()=>{
     if(!ready)return;
@@ -2922,7 +2950,16 @@ export default function App(){
   const comm=useMemo(()=>prov?calcComm(entries,prov,catalog,hrs,retail):{totRev:0,svcRev:0,injRev:0,facRev:0,retRev:0,totCogs:0,retCogs:0,gp:0,totTips:0,memCt:0,memB:0,retComm:0,basePay:0,iT:{rate:0},fT:{rate:0},injC:0,facC:0,totC:0,totalPay:0,above:0,hrs:0},[entries,prov,catalog,hrs,retail]);
 
   if(!ready)return<div style={{minHeight:'100vh',background:C.navy,display:'flex',alignItems:'center',justifyContent:'center',color:C.accentL,fontFamily:sans}}>Loading…</div>;
-  if(!auth)return<LoginScreen providers={providers} onLogin={a=>{setAuth(a);if(a.role==='staff'){setSid(a.providerId);setView('log');}else if(a.role==='va'){setView('projects');}else{setView('combined');}}}/> ;
+  if(!sessionChecked)return(
+    <div style={{minHeight:'100vh',background:C.navy,display:'flex',alignItems:'center',justifyContent:'center',fontFamily:sans}}>
+      <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400;600&family=Montserrat:wght@300;400;500;600&display=swap" rel="stylesheet"/>
+      <div style={{textAlign:'center'}}>
+        <div style={{fontFamily:serif,fontSize:'28px',fontWeight:300,letterSpacing:'0.12em',color:'#fff',marginBottom:'12px'}}>Lumé Haus</div>
+        <div style={{fontSize:'11px',color:'rgba(154,175,178,0.6)',letterSpacing:'0.1em'}}>Loading…</div>
+      </div>
+    </div>
+  );
+  if(!auth)return<LoginScreen/>;
   const selSvc=entry.isProduct?null:(catalog||[]).find(c=>c.id===entry.serviceId)||(catalog||[]).find(c=>c.active)||(catalog||[])[0]||null;
   const autoCOG=(!entry.isProduct&&selSvc)?cogCalc(selSvc,entry.unitsUsed,entry.vialsUsed):0;
   const ml=new Date(month+'-02').toLocaleString('default',{month:'long',year:'numeric'});
@@ -3053,6 +3090,24 @@ export default function App(){
     // Scroll to form
     setTimeout(()=>window.scrollTo({top:0,behavior:'smooth'}),100);
   }
+  function resolveAuthFromEmail(email,vaOverride){
+    const emailLower=(email||'').toLowerCase();
+    const m=EMAIL_ROLE_MAP[emailLower];
+    if(!m){console.warn('No role mapping for email:',email);supabase.auth.signOut();return;}
+    if(m.role==='admin'){
+      setAuth({role:'admin',adminId:m.adminId||'admin1'});
+      setView('combined');
+    } else if(m.role==='staff'){
+      setAuth({role:'staff',providerId:m.providerId});
+      setSid(m.providerId);
+      setView('log');
+    } else if(m.role==='va'){
+      const arr=vaOverride||vaUsersRef.current;
+      const va=arr.find(v=>v.username?.toLowerCase()===(m.vaUsername||'').toLowerCase());
+      setAuth({role:'va',vaId:va?.id||`email:${emailLower}`,vaName:va?.name||m.vaName||email});
+      setView('projects');
+    }
+  }
   async function saveProv(){
     if(!newProv.name)return;
     const id=uid();
@@ -3107,7 +3162,7 @@ export default function App(){
             <button onClick={()=>{const d=new Date(month+'-02');d.setMonth(d.getMonth()+1);setMonth(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`);}} style={{background:'rgba(255,255,255,0.1)',border:'1px solid rgba(255,255,255,0.2)',color:'#fff',borderRadius:'6px',padding:'5px 10px',cursor:'pointer',fontFamily:sans,fontSize:'13px'}}>›</button>
             <button onClick={downloadReport} style={{background:C.accent,border:'none',color:'#fff',borderRadius:'7px',padding:'5px 12px',cursor:'pointer',fontFamily:sans,fontSize:'11px',fontWeight:700}}>⬇ Report</button>
           </div>
-          <button onClick={()=>setAuth(null)} style={{background:'rgba(255,255,255,0.08)',border:'1px solid rgba(255,255,255,0.15)',color:'rgba(255,255,255,0.7)',cursor:'pointer',padding:'5px 12px',borderRadius:'7px',fontFamily:sans,fontSize:'11px'}}>Sign Out</button>
+          <button onClick={()=>supabase.auth.signOut()} style={{background:'rgba(255,255,255,0.08)',border:'1px solid rgba(255,255,255,0.15)',color:'rgba(255,255,255,0.7)',cursor:'pointer',padding:'5px 12px',borderRadius:'7px',fontFamily:sans,fontSize:'11px'}}>Sign Out</button>
         </div>
       </div>
 
