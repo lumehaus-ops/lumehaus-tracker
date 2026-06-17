@@ -2780,6 +2780,9 @@ export default function App(){
   const[catalog,setCatalog]=useState(DEF_CAT);
   const[adminCreds,setAdminCreds]=useState(null);
   const[newPwds,setNewPwds]=useState({});
+  const[showPwMap,setShowPwMap]=useState({});
+  const[showMerge,setShowMerge]=useState({});
+  const[mergeInputs,setMergeInputs]=useState({});
   const[showVAFormAdmin,setShowVAFormAdmin]=useState(false);
   const adminCredsInitRef=useRef(false);
   const[sessionChecked,setSessionChecked]=useState(false);
@@ -3120,7 +3123,9 @@ export default function App(){
     if(!pw)return;
     const hash=await hashPw(pw);
     const pc=(adminCreds?.providers||{})[provId]||{};
-    setAdminCreds(c=>({...(c||DEF_CREDS),providers:{...((c||DEF_CREDS).providers||{}),[provId]:{...pc,password:hash}}}));
+    const updated={...(adminCreds||DEF_CREDS),providers:{...((adminCreds||DEF_CREDS).providers||{}),[provId]:{...pc,password:hash}}};
+    setAdminCreds(updated);
+    await dbSet('lh4:creds',JSON.stringify(updated));
     setNewPwds(p=>{const n={...p};delete n[`prov:${provId}`];return n;});
     showToast('Password updated ✓');
   }
@@ -3128,16 +3133,71 @@ export default function App(){
     if(!pw)return;
     const hash=await hashPw(pw);
     const vc=(adminCreds?.vas||{})[vaId]||{};
-    setAdminCreds(c=>({...(c||DEF_CREDS),vas:{...((c||DEF_CREDS).vas||{}),[vaId]:{...vc,password:hash}}}));
+    const updated={...(adminCreds||DEF_CREDS),vas:{...((adminCreds||DEF_CREDS).vas||{}),[vaId]:{...vc,password:hash}}};
+    setAdminCreds(updated);
+    await dbSet('lh4:creds',JSON.stringify(updated));
     setNewPwds(p=>{const n={...p};delete n[`va:${vaId}`];return n;});
     showToast('Password updated ✓');
   }
   async function setPwForAdmin(idx,pw){
     if(!pw)return;
     const hash=await hashPw(pw);
-    setAdminCreds(c=>{const ac=c||DEF_CREDS;const admins=[...(ac.admins||[])];admins[idx]={...admins[idx],password:hash};return{...ac,admins};});
+    const ac=adminCreds||DEF_CREDS;
+    const admins=[...(ac.admins||[])];
+    admins[idx]={...admins[idx],password:hash};
+    const updated={...ac,admins};
+    setAdminCreds(updated);
+    await dbSet('lh4:creds',JSON.stringify(updated));
     setNewPwds(p=>{const n={...p};delete n[`admin:${idx}`];return n;});
     showToast('Password updated ✓');
+  }
+  async function mergeVAData(newVAId,oldUsername){
+    if(!oldUsername?.trim()){showToast('Enter old username','error');return;}
+    const search=oldUsername.trim().toLowerCase();
+    const oldVA=vaUsers.find(v=>v.username?.toLowerCase()===search||v.id===oldUsername.trim()||v.name?.toLowerCase()===search);
+    if(!oldVA){showToast('Old VA account not found','error');return;}
+    if(oldVA.id===newVAId){showToast('Cannot merge account with itself','error');return;}
+    const newVA=vaUsers.find(v=>v.id===newVAId);
+    if(!newVA){showToast('Target VA not found','error');return;}
+    // Merge timesheet: add hours for same day
+    const mergedTs={...(oldVA.timesheet||{})};
+    Object.entries(newVA.timesheet||{}).forEach(([mo,days])=>{
+      if(!mergedTs[mo])mergedTs[mo]={};
+      Object.entries(days||{}).forEach(([d,h])=>{mergedTs[mo][d]=(mergedTs[mo][d]||0)+h;});
+    });
+    // Merge hoursLogged
+    const mergedHL={...(oldVA.hoursLogged||{})};
+    Object.entries(newVA.hoursLogged||{}).forEach(([k,v])=>{
+      mergedHL[k]=typeof v==='number'?(mergedHL[k]||0)+v:v;
+    });
+    // Update vaUsers: merge into new, remove old
+    const updVA=vaUsers.filter(v=>v.id!==oldVA.id).map(v=>v.id===newVAId?{...v,timesheet:mergedTs,hoursLogged:mergedHL}:v);
+    setVaUsers(updVA);
+    await dbSet('lh4:vausers',JSON.stringify(updVA));
+    // Remap project task assignments from old ID to new ID
+    const updProj=projects.map(proj=>({...proj,
+      assignedTo:(proj.assignedTo||[]).map(id=>id===oldVA.id?newVAId:id),
+      tasks:(proj.tasks||[]).map(t=>({...t,assignedTo:t.assignedTo===oldVA.id?newVAId:t.assignedTo}))
+    }));
+    setProjects(updProj);
+    await dbSet('lh4:projects',JSON.stringify(updProj));
+    // Move old VA hoursPayroll records to new VA
+    if(hoursPayroll[oldVA.id]){
+      const updHP={...hoursPayroll,[newVAId]:{...(hoursPayroll[newVAId]||{}),...hoursPayroll[oldVA.id]}};
+      delete updHP[oldVA.id];
+      setHoursPayroll(updHP);
+      await dbSet('lh4:hrspay',JSON.stringify(updHP));
+    }
+    // Remove old VA from adminCreds
+    if((adminCreds?.vas||{})[oldVA.id]){
+      const updCreds={...(adminCreds||DEF_CREDS),vas:{...((adminCreds||DEF_CREDS).vas||{})}};
+      delete updCreds.vas[oldVA.id];
+      setAdminCreds(updCreds);
+      await dbSet('lh4:creds',JSON.stringify(updCreds));
+    }
+    setMergeInputs(p=>{const n={...p};delete n[newVAId];return n;});
+    setShowMerge(p=>{const n={...p};delete n[newVAId];return n;});
+    showToast(`Merged ${oldVA.name||oldUsername} → ${newVA.name} ✓`);
   }
   function saveSvc(){if(!newSvc.name)return;setCatalog(p=>[...p,{...newSvc,id:uid()}]);setNewSvc(blankSv());setSvcOpen(false);}
 
@@ -3690,7 +3750,7 @@ export default function App(){
                         <div style={{fontSize:'9px',fontWeight:700,letterSpacing:'0.1em',textTransform:'uppercase',color:C.warn,marginBottom:'10px'}}>🔑 Staff Login Credentials</div>
                         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}>
                           <div><label style={{...lblS(),color:C.warn}}>Username</label><input value={pc.username} onChange={e=>setAdminCreds(c=>({...(c||DEF_CREDS),providers:{...((c||DEF_CREDS).providers||{}),[p.id]:{...pc,username:e.target.value}}}))} style={inp()}/></div>
-                          <div><label style={{...lblS(),color:C.warn}}>New Password</label><div style={{display:'flex',gap:'6px'}}><input value={newPwds[`prov:${p.id}`]||''} onChange={e=>setNewPwds(pw=>({...pw,[`prov:${p.id}`]:e.target.value}))} placeholder={pc.password?'●●●●●● (enter new to change)':'Enter password'} style={inp()}/><button style={Btn('secondary',{whiteSpace:'nowrap',padding:'8px 12px',fontSize:'11px'})} onClick={()=>setPwForProvider(p.id,newPwds[`prov:${p.id}`]||'')}>Set</button></div></div>
+                          <div><label style={{...lblS(),color:C.warn}}>New Password</label><div style={{display:'flex',gap:'6px'}}><input type={showPwMap[`prov:${p.id}`]?'text':'password'} value={newPwds[`prov:${p.id}`]||''} onChange={e=>setNewPwds(pw=>({...pw,[`prov:${p.id}`]:e.target.value}))} placeholder={pc.password?'●●●●●● (enter new to change)':'Enter password'} style={inp()}/><button style={Btn('secondary',{padding:'8px 9px',fontSize:'13px'})} title={showPwMap[`prov:${p.id}`]?'Hide':'Show'} onClick={()=>setShowPwMap(m=>({...m,[`prov:${p.id}`]:!m[`prov:${p.id}`]}))}>{ showPwMap[`prov:${p.id}`]?'🙈':'👁'}</button><button style={Btn('secondary',{whiteSpace:'nowrap',padding:'8px 12px',fontSize:'11px'})} onClick={()=>setPwForProvider(p.id,newPwds[`prov:${p.id}`]||'')}>Set</button></div></div>
                         </div>
                         <div style={{fontSize:'10px',color:C.warn,marginTop:'8px'}}>⚠ Share credentials directly with the provider only. Username auto-saves; click Set to update password.</div>
                       </div>
@@ -3754,7 +3814,24 @@ export default function App(){
                         <div><label style={lblS()}>Role</label><input value={va.role||''} onChange={e=>setVaUsers(p=>p.map(x=>x.id===va.id?{...x,role:e.target.value}:x))} style={inp()}/></div>
                         <div><label style={lblS()}>Hourly Rate ($/hr)</label><input type="number" value={va.hourlyRate||0} onChange={e=>setVaUsers(p=>p.map(x=>x.id===va.id?{...x,hourlyRate:+e.target.value}:x))} style={inp()}/></div>
                         <div><label style={lblS()}>Username</label><input value={pc.username||''} onChange={e=>setAdminCreds(c=>({...(c||DEF_CREDS),vas:{...((c||DEF_CREDS).vas||{}),[va.id]:{...pc,username:e.target.value}}}))} style={inp()}/></div>
-                        <div><label style={lblS()}>New Password</label><div style={{display:'flex',gap:'6px'}}><input value={newPwds[`va:${va.id}`]||''} onChange={e=>setNewPwds(pw=>({...pw,[`va:${va.id}`]:e.target.value}))} placeholder={pc.password?'●●●●●● (enter new to change)':'Enter password'} style={inp()}/><button style={Btn('secondary',{whiteSpace:'nowrap',padding:'8px 12px',fontSize:'11px'})} onClick={()=>setPwForVA(va.id,newPwds[`va:${va.id}`]||'')}>Set</button></div></div>
+                        <div><label style={lblS()}>New Password</label><div style={{display:'flex',gap:'6px'}}><input type={showPwMap[`va:${va.id}`]?'text':'password'} value={newPwds[`va:${va.id}`]||''} onChange={e=>setNewPwds(pw=>({...pw,[`va:${va.id}`]:e.target.value}))} placeholder={pc.password?'●●●●●● (enter new to change)':'Enter password'} style={inp()}/><button style={Btn('secondary',{padding:'8px 9px',fontSize:'13px'})} title={showPwMap[`va:${va.id}`]?'Hide':'Show'} onClick={()=>setShowPwMap(m=>({...m,[`va:${va.id}`]:!m[`va:${va.id}`]}))}>{ showPwMap[`va:${va.id}`]?'🙈':'👁'}</button><button style={Btn('secondary',{whiteSpace:'nowrap',padding:'8px 12px',fontSize:'11px'})} onClick={()=>setPwForVA(va.id,newPwds[`va:${va.id}`]||'')}>Set</button></div></div>
+                      </div>
+                      <div style={{marginTop:'10px',paddingTop:'10px',borderTop:`1px dashed ${C.border}`}}>
+                        <button style={Btn('secondary',{fontSize:'11px',padding:'5px 12px'})} onClick={()=>setShowMerge(m=>({...m,[va.id]:!m[va.id]}))}>
+                          {showMerge[va.id]?'▲ Cancel':'🔀 Merge Old Account'}
+                        </button>
+                        {showMerge[va.id]&&(
+                          <div style={{marginTop:'10px'}}>
+                            <div style={{display:'flex',gap:'8px',alignItems:'flex-end',flexWrap:'wrap'}}>
+                              <div style={{flex:1,minWidth:'160px'}}>
+                                <label style={lblS()}>Old Username or ID to merge from</label>
+                                <input value={mergeInputs[va.id]||''} onChange={e=>setMergeInputs(m=>({...m,[va.id]:e.target.value}))} placeholder="e.g. HoneyT" style={inp()}/>
+                              </div>
+                              <button style={Btn('primary',{fontSize:'11px',padding:'8px 16px'})} onClick={()=>mergeVAData(va.id,mergeInputs[va.id]||'')}>Merge →</button>
+                            </div>
+                            <div style={{fontSize:'10px',color:C.muted,marginTop:'6px'}}>Transfers timesheet, hours, task assignments, and payment records from the old account into {va.name}, then removes the old account.</div>
+                          </div>
+                        )}
                       </div>
                     </div>
                   );
@@ -3784,7 +3861,7 @@ export default function App(){
                   <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr auto',gap:'10px',alignItems:'end'}}>
                     <div><label style={lblS()}>Name</label><input value={admin.name} onChange={e=>setAdminCreds(c=>({...(c||DEF_CREDS),admins:(c||DEF_CREDS).admins.map((a,j)=>j===i?{...a,name:e.target.value}:a)}))} style={inp()}/></div>
                     <div><label style={lblS()}>Username</label><input value={admin.username} onChange={e=>setAdminCreds(c=>({...(c||DEF_CREDS),admins:(c||DEF_CREDS).admins.map((a,j)=>j===i?{...a,username:e.target.value}:a)}))} style={inp()}/></div>
-                    <div><label style={lblS()}>New Password</label><div style={{display:'flex',gap:'6px'}}><input value={newPwds[`admin:${i}`]||''} onChange={e=>setNewPwds(pw=>({...pw,[`admin:${i}`]:e.target.value}))} placeholder={admin.password?'●●●●●● (enter new to change)':'Enter password'} style={inp()}/><button style={Btn('secondary',{whiteSpace:'nowrap',padding:'8px 12px',fontSize:'11px'})} onClick={()=>setPwForAdmin(i,newPwds[`admin:${i}`]||'')}>Set</button></div></div>
+                    <div><label style={lblS()}>New Password</label><div style={{display:'flex',gap:'6px'}}><input type={showPwMap[`admin:${i}`]?'text':'password'} value={newPwds[`admin:${i}`]||''} onChange={e=>setNewPwds(pw=>({...pw,[`admin:${i}`]:e.target.value}))} placeholder={admin.password?'●●●●●● (enter new to change)':'Enter password'} style={inp()}/><button style={Btn('secondary',{padding:'8px 9px',fontSize:'13px'})} title={showPwMap[`admin:${i}`]?'Hide':'Show'} onClick={()=>setShowPwMap(m=>({...m,[`admin:${i}`]:!m[`admin:${i}`]}))}>{ showPwMap[`admin:${i}`]?'🙈':'👁'}</button><button style={Btn('secondary',{whiteSpace:'nowrap',padding:'8px 12px',fontSize:'11px'})} onClick={()=>setPwForAdmin(i,newPwds[`admin:${i}`]||'')}>Set</button></div></div>
                     <button disabled={(adminCreds?.admins||[]).length<=1} onClick={()=>setAdminCreds(c=>({...(c||DEF_CREDS),admins:(c||DEF_CREDS).admins.filter((_,j)=>j!==i)}))} style={{...Btn('danger',{padding:'8px 10px',fontSize:'11px'}),opacity:(adminCreds?.admins||[]).length<=1?0.4:1}}>Remove</button>
                   </div>
                 </div>
