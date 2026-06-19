@@ -126,6 +126,7 @@ async function updateCredHash(updateFn){
   const updated=updateFn(cr);
   const{error}=await supabase.from('app_data').upsert({key:'lh4:creds',value:JSON.stringify(updated),updated_at:new Date().toISOString()},{onConflict:'key'});
   if(error){console.error('[updateCredHash] write failed — RLS or network issue',error);return{success:false,error};}
+  try{localStorage.setItem('lh4:creds',JSON.stringify(updated));}catch(e){}
   return{success:true};
 }
 // Merge username/name changes from stripped state with existing password hashes in Supabase
@@ -140,6 +141,7 @@ async function saveCredsDirect(stateCreds){
   };
   const{error}=await supabase.from('app_data').upsert({key:'lh4:creds',value:JSON.stringify(merged),updated_at:new Date().toISOString()},{onConflict:'key'});
   if(error)console.error('[saveCredsDirect] write failed — RLS or network issue',error);
+  try{localStorage.setItem('lh4:creds',JSON.stringify(merged));}catch(e){}
 }
 
 function calcComm(entries,prov,catalog,hrs,retail){
@@ -2937,7 +2939,7 @@ export default function App(){
       let cr=raw?JSON.parse(raw):DEF_CREDS;
       if(cr.adminUser&&!cr.admins){cr.admins=[{id:'admin1',name:'Admin',username:cr.adminUser,password:cr.adminPass}];}
       cr=await migrateCredsIfNeeded(cr);
-      try{localStorage.removeItem('lh4:creds');}catch(e){}
+      try{localStorage.setItem('lh4:creds',JSON.stringify(cr));}catch(e){}
       setAdminCreds(stripCredsPasswords(cr));
     })();
   },[auth,adminCreds]);
