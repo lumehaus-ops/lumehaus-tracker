@@ -2891,6 +2891,7 @@ export default function App(){
         const ec=await dbGet('lh4:email');if(ec){const parsed=JSON.parse(ec);setEmailConfig(parsed);if(parsed.publicKey)initEmail(parsed.publicKey);}
         const pj=await dbGet('lh4:projects');if(pj)setProjects(JSON.parse(pj));
         let loadedVaUsers=[];
+        let pendingVASync=null;
         const va=await dbGet('lh4:vausers');
         const localVA=localStorage.getItem('lh4:vausers');
         if(va&&localVA){
@@ -2903,19 +2904,21 @@ export default function App(){
           });
           loadedVaUsers=merged;
           setVaUsers(merged);vaUsersRef.current=merged;
-          // Sync merged back to Supabase
-          dbSet('lh4:vausers',JSON.stringify(merged));
+          pendingVASync=JSON.stringify(merged);
         } else if(va){loadedVaUsers=JSON.parse(va);setVaUsers(loadedVaUsers);vaUsersRef.current=loadedVaUsers;}
         else if(localVA){
           const locVA=JSON.parse(localVA);
           loadedVaUsers=locVA;
           setVaUsers(locVA);vaUsersRef.current=locVA;
-          dbSet('lh4:vausers',JSON.stringify(locVA));
+          pendingVASync=JSON.stringify(locVA);
         }
         const pr=await dbGet('lh4:payroll');if(pr)setPayroll(JSON.parse(pr));
         // Check for an existing Supabase Auth session (auto-login on page reload)
+        // getSession() ensures the JWT is refreshed before any write — must come before dbSet calls
         const{data:{session}}=await supabase.auth.getSession();
         if(session?.user?.email)resolveAuthFromEmail(session.user.email,loadedVaUsers);
+        // Sync VA users to Supabase only after session is confirmed (avoids anon-write RLS failures)
+        if(pendingVASync)dbSet('lh4:vausers',pendingVASync);
       }catch(e){console.error('Load error',e);}
       setReady(true);setSessionChecked(true);
     })();
