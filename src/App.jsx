@@ -94,14 +94,6 @@ const DEF_PROV=[
 ];
 const DEF_CREDS={admins:[{id:'admin1',name:'Crystal-Dior',username:'admin',password:''}],providers:{lauren:{username:'lauren',password:''},emy:{username:'emy',password:''},megan:{username:'megan',password:''}},vas:{}};
 
-// Maps Supabase Auth emails → app roles and provider/VA identities
-const EMAIL_ROLE_MAP = {
-  'lumehaus@cornerstonemd.health':      {role:'admin',  adminId:'admin1'},
-  'lumehausmedspa@gmail.com':           {role:'staff',  providerId:'lauren', vaName:'Lauren Greene'},
-  'hjbtampus@gmail.com':                {role:'va',     vaUsername:'HoneyT',  vaName:'Honey Tampus'},
-  'lmoreaux@cornerstonemd.health':      {role:'va',     vaUsername:'LaurenM', vaName:'Lauren M'},
-  'michaeltampus1123@gmail.com':        {role:'va',     vaUsername:'MichaelT',vaName:'Michael T'},
-};
 
 async function hashPw(pw){
   const buf=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(pw));
@@ -182,21 +174,31 @@ function calcComm(entries,prov,catalog,hrs,retail){
   return{totRev,svcRev,injRev,facRev,retRev,loggedRetRev,loggedRetail,totCogs,retCogs,gp,totTips,memCt,memB,retComm,basePay,iT,fT,injC,facC,totC:injC+facC+memB+retComm,totalPay:basePay+injC+facC+memB+retComm,above,hrs:+hrs||0,entries:rows.length};
 }
 
-function LoginScreen(){
-  const[email,setEmail]=useState('');
+function LoginScreen({onLogin}){
+  const[username,setUsername]=useState('');
   const[pw,setPw]=useState('');
   const[showPw,setShow]=useState(false);
   const[errMsg,setErr]=useState('');
   const[loading,setLoading]=useState(false);
   async function attempt(){
     if(loading)return;
+    const u=username.trim().toLowerCase();
+    if(!u||!pw){setErr('Enter username and password.');return;}
     setLoading(true);setErr('');
     try{
-      const{error}=await supabase.auth.signInWithPassword({email:email.trim().toLowerCase(),password:pw});
-      if(error){
-        setErr(error.message==='Invalid login credentials'?'Incorrect email or password.':error.message);
-      }
-      // On success: onAuthStateChange in App() fires SIGNED_IN and resolves the role
+      const raw=await dbGet('lh4:creds');
+      const cr=raw?JSON.parse(raw):{...DEF_CREDS};
+      const hash=await hashPw(pw);
+      // Check admins
+      const admin=(cr.admins||[]).find(a=>a.username?.toLowerCase()===u&&a.password===hash);
+      if(admin){onLogin({role:'admin',adminId:admin.id||'admin1'});return;}
+      // Check providers
+      const provEntry=Object.entries(cr.providers||{}).find(([,p])=>p?.username?.toLowerCase()===u&&p?.password===hash);
+      if(provEntry){onLogin({role:'staff',providerId:provEntry[0]});return;}
+      // Check VAs
+      const vaEntry=Object.entries(cr.vas||{}).find(([,v])=>v?.username?.toLowerCase()===u&&v?.password===hash);
+      if(vaEntry){onLogin({role:'va',vaId:vaEntry[0],vaName:vaEntry[1]?.name||u});return;}
+      setErr('Incorrect username or password.');
     }catch(e){console.error('Login error',e);setErr('Login error, please try again.');}
     setLoading(false);
   }
@@ -210,18 +212,18 @@ function LoginScreen(){
         </div>
         <div style={{background:'#fff',borderRadius:'16px',padding:'28px',boxShadow:'0 20px 60px rgba(0,0,0,0.3)'}}>
           <div style={{marginBottom:'14px'}}>
-            <label style={lblS()}>Email</label>
-            <input type="email" value={email} onChange={e=>{setEmail(e.target.value);setErr('');}} onKeyDown={e=>e.key==='Enter'&&attempt()} placeholder="Enter your email" style={inp()} autoComplete="email"/>
+            <label style={lblS()}>Username</label>
+            <input type="text" value={username} onChange={e=>{setUsername(e.target.value);setErr('');}} onKeyDown={e=>e.key==='Enter'&&attempt()} placeholder="Enter your username" style={inp()} autoComplete="username"/>
           </div>
           <div style={{marginBottom:'18px'}}>
             <label style={lblS()}>Password</label>
             <div style={{position:'relative'}}>
               <input type={showPw?'text':'password'} value={pw} onChange={e=>{setPw(e.target.value);setErr('');}} onKeyDown={e=>e.key==='Enter'&&attempt()} placeholder="Enter password" style={inp({paddingRight:'40px'})} autoComplete="current-password"/>
-              <button onClick={()=>setShow(s=>!s)} style={{position:'absolute',right:'10px',top:'50%',transform:'translateY(-50%)',background:'none',border:'none',cursor:'pointer',color:C.muted,fontSize:'13px'}}>{showPw?'🙈':'👁'}</button>
+              <button type="button" onClick={()=>setShow(s=>!s)} style={{position:'absolute',right:'10px',top:'50%',transform:'translateY(-50%)',background:'none',border:'none',cursor:'pointer',color:C.muted,fontSize:'13px'}}>{showPw?'🙈':'👁'}</button>
             </div>
           </div>
           {errMsg&&<div style={{background:C.dangerBg,color:C.danger,borderRadius:'7px',padding:'8px 12px',fontSize:'11px',fontWeight:600,marginBottom:'12px'}}>{errMsg}</div>}
-          <button onClick={attempt} disabled={loading} style={{...Btn('primary'),width:'100%',padding:'12px',fontSize:'13px',borderRadius:'10px',opacity:loading?0.7:1}}>{loading?'Signing in…':'Sign In'}</button>
+          <button type="button" onClick={attempt} disabled={loading} style={{...Btn('primary'),width:'100%',padding:'12px',fontSize:'13px',borderRadius:'10px',opacity:loading?0.7:1}}>{loading?'Signing in…':'Sign In'}</button>
         </div>
         <div style={{textAlign:'center',marginTop:'18px',fontSize:'9px',color:'rgba(154,175,178,0.4)',letterSpacing:'0.1em',fontWeight:700}}>DR. LOUIS GILBERT, MD · LUMEHAUS.HEALTH</div>
       </div>
@@ -2836,7 +2838,6 @@ export default function App(){
   const[mergeInputs,setMergeInputs]=useState({});
   const[showVAFormAdmin,setShowVAFormAdmin]=useState(false);
   const adminCredsInitRef=useRef(false);
-  const[sessionChecked,setSessionChecked]=useState(false);
   const vaUsersRef=useRef([]);
   const[logData,setLogData]=useState({});
   const[hoursData,setHoursData]=useState({});
@@ -2913,14 +2914,14 @@ export default function App(){
           pendingVASync=JSON.stringify(locVA);
         }
         const pr=await dbGet('lh4:payroll');if(pr)setPayroll(JSON.parse(pr));
-        // Check for an existing Supabase Auth session (auto-login on page reload)
-        // getSession() ensures the JWT is refreshed before any write — must come before dbSet calls
-        const{data:{session}}=await supabase.auth.getSession();
-        if(session?.user?.email)resolveAuthFromEmail(session.user.email,loadedVaUsers);
-        // Sync VA users to Supabase only after session is confirmed (avoids anon-write RLS failures)
+        // Restore session from localStorage (no Supabase Auth — lh4:creds handles login)
+        try{
+          const stored=localStorage.getItem('lh4:session');
+          if(stored){const a=JSON.parse(stored);if(a?.role){setAuth(a);if(a.role==='admin')setView('combined');else if(a.role==='staff'){setSid(a.providerId);setView('log');}else if(a.role==='va')setView('projects');}}
+        }catch(e){}
         if(pendingVASync)dbSet('lh4:vausers',pendingVASync);
       }catch(e){console.error('Load error',e);}
-      setReady(true);setSessionChecked(true);
+      setReady(true);
     })();
   },[]);
   useEffect(()=>{if(ready)dbSet('lh4:data',JSON.stringify(logData));},[logData,ready]);
@@ -2959,22 +2960,8 @@ export default function App(){
     }
   },[vaUsers,ready]);
   useEffect(()=>{if(ready)dbSet('lh4:payroll',JSON.stringify(payroll));},[payroll,ready]);
-  // Keep vaUsersRef in sync so the auth state change handler always sees current VA list
+  // Keep vaUsersRef in sync so VA-related logic always sees the current list
   useEffect(()=>{vaUsersRef.current=vaUsers;},[vaUsers]);
-  // Handle Supabase Auth state changes after initial load (sign-in via LoginScreen, sign-out)
-  useEffect(()=>{
-    const{data:{subscription}}=supabase.auth.onAuthStateChange((event,session)=>{
-      if(event==='SIGNED_IN'&&session?.user?.email){
-        resolveAuthFromEmail(session.user.email);
-      } else if(event==='SIGNED_OUT'){
-        setAuth(null);
-        setAdminCreds(null);
-        adminCredsInitRef.current=false;
-        setView('dashboard');
-      }
-    });
-    return()=>subscription.unsubscribe();
-  },[]);
 
   useEffect(()=>{
     if(!ready)return;
@@ -3009,16 +2996,7 @@ export default function App(){
   const comm=useMemo(()=>prov?calcComm(entries,prov,catalog,hrs,retail):{totRev:0,svcRev:0,injRev:0,facRev:0,retRev:0,totCogs:0,retCogs:0,gp:0,totTips:0,memCt:0,memB:0,retComm:0,basePay:0,iT:{rate:0},fT:{rate:0},injC:0,facC:0,totC:0,totalPay:0,above:0,hrs:0},[entries,prov,catalog,hrs,retail]);
 
   if(!ready)return<div style={{minHeight:'100vh',background:C.navy,display:'flex',alignItems:'center',justifyContent:'center',color:C.accentL,fontFamily:sans}}>Loading…</div>;
-  if(!sessionChecked)return(
-    <div style={{minHeight:'100vh',background:C.navy,display:'flex',alignItems:'center',justifyContent:'center',fontFamily:sans}}>
-      <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400;600&family=Montserrat:wght@300;400;500;600&display=swap" rel="stylesheet"/>
-      <div style={{textAlign:'center'}}>
-        <div style={{fontFamily:serif,fontSize:'28px',fontWeight:300,letterSpacing:'0.12em',color:'#fff',marginBottom:'12px'}}>Lumé Haus</div>
-        <div style={{fontSize:'11px',color:'rgba(154,175,178,0.6)',letterSpacing:'0.1em'}}>Loading…</div>
-      </div>
-    </div>
-  );
-  if(!auth)return<LoginScreen/>;
+  if(!auth)return<LoginScreen onLogin={handleLogin}/>;
   const selSvc=entry.isProduct?null:(catalog||[]).find(c=>c.id===entry.serviceId)||(catalog||[]).find(c=>c.active)||(catalog||[])[0]||null;
   const autoCOG=(!entry.isProduct&&selSvc)?cogCalc(selSvc,entry.unitsUsed,entry.vialsUsed):0;
   const ml=new Date(month+'-02').toLocaleString('default',{month:'long',year:'numeric'});
@@ -3149,23 +3127,12 @@ export default function App(){
     // Scroll to form
     setTimeout(()=>window.scrollTo({top:0,behavior:'smooth'}),100);
   }
-  function resolveAuthFromEmail(email,vaOverride){
-    const emailLower=(email||'').toLowerCase();
-    const m=EMAIL_ROLE_MAP[emailLower];
-    if(!m){console.warn('No role mapping for email:',email);supabase.auth.signOut();return;}
-    if(m.role==='admin'){
-      setAuth({role:'admin',adminId:m.adminId||'admin1'});
-      setView('combined');
-    } else if(m.role==='staff'){
-      setAuth({role:'staff',providerId:m.providerId});
-      setSid(m.providerId);
-      setView('log');
-    } else if(m.role==='va'){
-      const arr=vaOverride||vaUsersRef.current;
-      const va=arr.find(v=>v.username?.toLowerCase()===(m.vaUsername||'').toLowerCase());
-      setAuth({role:'va',vaId:va?.id||`email:${emailLower}`,vaName:va?.name||m.vaName||email});
-      setView('projects');
-    }
+  function handleLogin(authState){
+    setAuth(authState);
+    if(authState.role==='admin')setView('combined');
+    else if(authState.role==='staff'){setSid(authState.providerId);setView('log');}
+    else if(authState.role==='va')setView('projects');
+    try{localStorage.setItem('lh4:session',JSON.stringify(authState));}catch(e){}
   }
   async function saveProv(){
     if(!newProv.name)return;
@@ -3287,7 +3254,7 @@ export default function App(){
             <button onClick={()=>{const d=new Date(month+'-02');d.setMonth(d.getMonth()+1);setMonth(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`);}} style={{background:'rgba(255,255,255,0.1)',border:'1px solid rgba(255,255,255,0.2)',color:'#fff',borderRadius:'6px',padding:'5px 10px',cursor:'pointer',fontFamily:sans,fontSize:'13px'}}>›</button>
             <button onClick={downloadReport} style={{background:C.accent,border:'none',color:'#fff',borderRadius:'7px',padding:'5px 12px',cursor:'pointer',fontFamily:sans,fontSize:'11px',fontWeight:700}}>⬇ Report</button>
           </div>
-          <button onClick={()=>supabase.auth.signOut()} style={{background:'rgba(255,255,255,0.08)',border:'1px solid rgba(255,255,255,0.15)',color:'rgba(255,255,255,0.7)',cursor:'pointer',padding:'5px 12px',borderRadius:'7px',fontFamily:sans,fontSize:'11px'}}>Sign Out</button>
+          <button type="button" onClick={()=>{setAuth(null);setAdminCreds(null);adminCredsInitRef.current=false;setView('dashboard');try{localStorage.removeItem('lh4:session');}catch(e){}}} style={{background:'rgba(255,255,255,0.08)',border:'1px solid rgba(255,255,255,0.15)',color:'rgba(255,255,255,0.7)',cursor:'pointer',padding:'5px 12px',borderRadius:'7px',fontFamily:sans,fontSize:'11px'}}>Sign Out</button>
         </div>
       </div>
 
