@@ -126,24 +126,28 @@ function stripCredsPasswords(cr){
   };
 }
 // Read creds from Supabase, apply updateFn, write back — never touches localStorage
+// Returns {success:true} or {success:false, error}
 async function updateCredHash(updateFn){
   let existing=null;
-  try{const{data}=await supabase.from('app_data').select('value').eq('key','lh4:creds').single();if(data)existing=JSON.parse(data.value);}catch(e){}
+  try{const{data}=await supabase.from('app_data').select('value').eq('key','lh4:creds').single();if(data)existing=JSON.parse(data.value);}catch(e){console.error('[updateCredHash] read failed',e);}
   const cr=existing||{...DEF_CREDS};
   const updated=updateFn(cr);
-  await supabase.from('app_data').upsert({key:'lh4:creds',value:JSON.stringify(updated),updated_at:new Date().toISOString()},{onConflict:'key'});
+  const{error}=await supabase.from('app_data').upsert({key:'lh4:creds',value:JSON.stringify(updated),updated_at:new Date().toISOString()},{onConflict:'key'});
+  if(error){console.error('[updateCredHash] write failed — RLS or network issue',error);return{success:false,error};}
+  return{success:true};
 }
 // Merge username/name changes from stripped state with existing password hashes in Supabase
 async function saveCredsDirect(stateCreds){
   let existing=null;
-  try{const{data}=await supabase.from('app_data').select('value').eq('key','lh4:creds').single();if(data)existing=JSON.parse(data.value);}catch(e){}
+  try{const{data}=await supabase.from('app_data').select('value').eq('key','lh4:creds').single();if(data)existing=JSON.parse(data.value);}catch(e){console.error('[saveCredsDirect] read failed',e);}
   const base=existing||{...DEF_CREDS};
   const merged={
     admins:(stateCreds.admins||[]).map(a=>({...a,password:(base.admins||[]).find(ba=>ba.id===a.id)?.password||undefined,hasPassword:undefined})),
     providers:Object.fromEntries(Object.entries(stateCreds.providers||{}).map(([k,v])=>[k,{...v,password:(base.providers||{})[k]?.password||undefined,hasPassword:undefined}])),
     vas:Object.fromEntries(Object.entries(stateCreds.vas||{}).map(([k,v])=>[k,v?{...v,password:(base.vas||{})[k]?.password||undefined,hasPassword:undefined}:v]))
   };
-  await supabase.from('app_data').upsert({key:'lh4:creds',value:JSON.stringify(merged),updated_at:new Date().toISOString()},{onConflict:'key'});
+  const{error}=await supabase.from('app_data').upsert({key:'lh4:creds',value:JSON.stringify(merged),updated_at:new Date().toISOString()},{onConflict:'key'});
+  if(error)console.error('[saveCredsDirect] write failed — RLS or network issue',error);
 }
 
 function calcComm(entries,prov,catalog,hrs,retail){
@@ -3163,31 +3167,40 @@ export default function App(){
   async function saveProv(){
     if(!newProv.name)return;
     const id=uid();
-    setProviders(p=>[...p,{...newProv,id}]);
+    const provData={...newProv,id};
     const username=newProv.name.toLowerCase().split(' ')[0];
+    // Save provider data immediately to both localStorage and Supabase
+    const updatedProviders=[...providers,provData];
+    setProviders(updatedProviders);
+    dbSet('lh4:prov',JSON.stringify(updatedProviders));
     const defPwHash=await hashPw('LH2025');
-    await updateCredHash(cr=>({...cr,providers:{...(cr.providers||{}),[id]:{username,password:defPwHash}}}));
-    setAdminCreds(c=>({...(c||DEF_CREDS),providers:{...((c||DEF_CREDS).providers||{}),[id]:{username,hasPassword:true}}}));
-    setNewProv(blankP());setProvOpen(false);showToast('Provider added ✓');
+    const{success}=await updateCredHash(cr=>({...cr,providers:{...(cr.providers||{}),[id]:{username,password:defPwHash}}}));
+    setAdminCreds(c=>({...(c||DEF_CREDS),providers:{...((c||DEF_CREDS).providers||{}),[id]:{username,hasPassword:success}}}));
+    setNewProv(blankP());setProvOpen(false);
+    if(success){showToast('Provider added ✓');}
+    else{showToast('Provider added but credential save failed — check Supabase RLS policy','warn');}
   }
   async function setPwForProvider(provId,pw){
     if(!pw)return;
     const hash=await hashPw(pw);
-    await updateCredHash(cr=>({...cr,providers:{...(cr.providers||{}),[provId]:{...((cr.providers||{})[provId]||{}),password:hash}}}));
+    const{success}=await updateCredHash(cr=>({...cr,providers:{...(cr.providers||{}),[provId]:{...((cr.providers||{})[provId]||{}),password:hash}}}));
+    if(!success){showToast('Password save failed — Supabase write blocked. Check RLS policy.','error');return;}
     setAdminCreds(c=>{const pc=(c?.providers||{})[provId]||{};return{...(c||DEF_CREDS),providers:{...((c||DEF_CREDS).providers||{}),[provId]:{...pc,password:undefined,hasPassword:true}}};});
     showToast('Password updated ✓');
   }
   async function setPwForVA(vaId,pw){
     if(!pw)return;
     const hash=await hashPw(pw);
-    await updateCredHash(cr=>({...cr,vas:{...(cr.vas||{}),[vaId]:{...((cr.vas||{})[vaId]||{}),password:hash}}}));
+    const{success}=await updateCredHash(cr=>({...cr,vas:{...(cr.vas||{}),[vaId]:{...((cr.vas||{})[vaId]||{}),password:hash}}}));
+    if(!success){showToast('Password save failed — Supabase write blocked. Check RLS policy.','error');return;}
     setAdminCreds(c=>{const vc=(c?.vas||{})[vaId]||{};return{...(c||DEF_CREDS),vas:{...((c||DEF_CREDS).vas||{}),[vaId]:{...vc,password:undefined,hasPassword:true}}};});
     showToast('Password updated ✓');
   }
   async function setPwForAdmin(idx,pw){
     if(!pw)return;
     const hash=await hashPw(pw);
-    await updateCredHash(cr=>{const admins=[...(cr.admins||[])];admins[idx]={...(admins[idx]||{}),password:hash};return{...cr,admins};});
+    const{success}=await updateCredHash(cr=>{const admins=[...(cr.admins||[])];admins[idx]={...(admins[idx]||{}),password:hash};return{...cr,admins};});
+    if(!success){showToast('Password save failed — Supabase write blocked. Check RLS policy.','error');return;}
     setAdminCreds(c=>{const ac=c||DEF_CREDS;const admins=[...(ac.admins||[])];admins[idx]={...(admins[idx]||{}),password:undefined,hasPassword:true};return{...ac,admins};});
     showToast('Password updated ✓');
   }
@@ -3238,6 +3251,17 @@ export default function App(){
     showToast(`Merged ${oldVA.name||oldUsername} → ${newVA.name} ✓`);
   }
   function saveSvc(){if(!newSvc.name)return;setCatalog(p=>[...p,{...newSvc,id:uid()}]);setNewSvc(blankSv());setSvcOpen(false);}
+
+  // Shared handler for saving VA credentials — used by both VAFormInline and ProjectsView
+  async function handleSaveVACreds(id,name,username,pwHash){
+    const{success}=await updateCredHash(cr=>({...cr,vas:{...(cr.vas||{}),[id]:{id,name,username,password:pwHash}}}));
+    if(success){
+      setAdminCreds(c=>({...(c||DEF_CREDS),vas:{...((c||DEF_CREDS).vas||{}),[id]:{id,name,username,hasPassword:!!pwHash}}}));
+    } else {
+      showToast('VA added but credential save failed — check Supabase RLS policy','warn');
+      setAdminCreds(c=>({...(c||DEF_CREDS),vas:{...((c||DEF_CREDS).vas||{}),[id]:{id,name,username,hasPassword:false}}}));
+    }
+  }
 
   const navItems=isAdmin?['combined','dashboard','log','commission','catalog','providers','expenses','breakeven','analytics','projects','kpi']:auth?.role==='va'?['projects']:['dashboard','log','tasks','myprojects'];
   const navLabels={'combined':'👥 All Providers','dashboard':'Dashboard','log':'Log','commission':'Commission','catalog':'Catalog','providers':'Staff','expenses':'💰 Expenses','breakeven':'📈 Breakeven','analytics':'📊 Analytics','projects':'📋 Projects','tasks':'📋 My Tasks','myprojects':'📁 My Projects','kpi':'🎯 KPIs'};
@@ -3827,7 +3851,7 @@ export default function App(){
 
               {showVAFormAdmin&&(
                 <div style={{background:C.bg,borderRadius:'10px',padding:'14px',marginBottom:'14px',border:`1px solid ${C.border}`}}>
-                  <VAFormInline vaUsers={vaUsers} setVaUsers={setVaUsers} onSave={(id,name,username,pwHash)=>{updateCredHash(cr=>({...cr,vas:{...(cr.vas||{}),[id]:{id,name,username,password:pwHash}}}));setAdminCreds(c=>({...(c||DEF_CREDS),vas:{...((c||DEF_CREDS).vas||{}),[id]:{id,name,username,hasPassword:!!pwHash}}}));setShowVAFormAdmin(false);}} onCancel={()=>setShowVAFormAdmin(false)}/>
+                  <VAFormInline vaUsers={vaUsers} setVaUsers={setVaUsers} onSave={(id,name,username,pwHash)=>{handleSaveVACreds(id,name,username,pwHash);setShowVAFormAdmin(false);}} onCancel={()=>setShowVAFormAdmin(false)}/>
                 </div>
               )}
 
@@ -3910,7 +3934,7 @@ export default function App(){
         )}
 
         {view==='expenses'&&isAdmin&&<ExpensesView expenses={expenses} setExpenses={setExpenses} month={month} payroll={payroll} setPayroll={setPayroll} providers={providers} logData={logData} hoursData={hoursData} retailData={retailData} catalog={catalog}/>}
-        {view==='projects'&&isAdmin&&<ProjectsView projects={projects} setProjects={setProjects} providers={providers} vaUsers={vaUsers} setVaUsers={setVaUsers} onSaveVACreds={(id,name,username,pwHash)=>{updateCredHash(cr=>({...cr,vas:{...(cr.vas||{}),[id]:{id,name,username,password:pwHash}}}));setAdminCreds(c=>({...(c||DEF_CREDS),vas:{...((c||DEF_CREDS).vas||{}),[id]:{id,name,username,hasPassword:!!pwHash}}}))}} emailConfig={emailConfig} month={month} setMonth={setMonth}/>}
+        {view==='projects'&&isAdmin&&<ProjectsView projects={projects} setProjects={setProjects} providers={providers} vaUsers={vaUsers} setVaUsers={setVaUsers} onSaveVACreds={handleSaveVACreds} emailConfig={emailConfig} month={month} setMonth={setMonth}/>}
         {view==='myprojects'&&auth?.role!=='admin'&&auth?.role!=='va'&&<StaffProjectsView projects={projects} setProjects={setProjects} provId={auth?.providerId} provName={prov?.name} catalog={catalog} clients={clients} month={month}/> }
         {view==='tasks'&&auth?.role!=='admin'&&auth?.role!=='va'&&<TasksView projects={projects} setProjects={setProjects} provId={auth?.providerId} provName={prov?.name} month={month} importantDetails={importantDetails} setImportantDetails={setImportantDetails} emailConfig={emailConfig} providerName={prov?.name} kpiData={kpiData} setKpiData={setKpiData}/>}
         {auth?.role==='va'&&<VAView projects={projects} setProjects={setProjects} auth={auth} vaUsers={vaUsers} setVaUsers={setVaUsers} month={month} importantDetails={importantDetails} setImportantDetails={setImportantDetails} emailConfig={emailConfig} hoursPayroll={hoursPayroll}/>}
