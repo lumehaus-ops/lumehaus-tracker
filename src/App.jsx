@@ -92,7 +92,7 @@ const DEF_PROV=[
   {id:'emy',name:'Emy Rodriguez',role:'Injector / Esthetician',color:'#5b8f93',monthlyGoal:15000,hasHourly:false,compType:'commission_first',hourlyRate:0,injectableTiers:[{upTo:4999,rate:20},{upTo:9999,rate:25},{upTo:99999,rate:30}],facialTiers:[{upTo:1999,rate:15},{upTo:4999,rate:20},{upTo:99999,rate:25}],membershipBonus:10,retailCommRate:10},
   {id:'megan',name:'Megan M. Jones',role:'Esthetician / Injector',color:'#4a7d81',monthlyGoal:12000,hasHourly:false,compType:'commission_first',hourlyRate:0,injectableTiers:[{upTo:4999,rate:20},{upTo:9999,rate:25},{upTo:99999,rate:30}],facialTiers:[{upTo:1999,rate:15},{upTo:4999,rate:20},{upTo:99999,rate:25}],membershipBonus:10,retailCommRate:10},
 ];
-const DEF_CREDS={admins:[{id:'admin1',name:'Crystal-Dior',username:'admin',password:'LumeAdmin2025'}],providers:{lauren:{username:'lauren',password:'Lauren2025'},emy:{username:'emy',password:'Emy2025'},megan:{username:'megan',password:'Megan2025'}},vas:{}};
+const DEF_CREDS={admins:[{id:'admin1',name:'Crystal-Dior',username:'admin',password:''}],providers:{lauren:{username:'lauren',password:''},emy:{username:'emy',password:''},megan:{username:'megan',password:''}},vas:{}};
 
 // Maps Supabase Auth emails → app roles and provider/VA identities
 const EMAIL_ROLE_MAP = {
@@ -113,8 +113,37 @@ async function migrateCredsIfNeeded(cr){
   for(const a of(cr.admins||[])){if(a.password&&!isHashed(a.password)){a.password=await hashPw(a.password);changed=true;}}
   for(const pid of Object.keys(cr.providers||{})){const p=cr.providers[pid];if(p.password&&!isHashed(p.password)){p.password=await hashPw(p.password);changed=true;}}
   for(const vid of Object.keys(cr.vas||{})){const v=cr.vas[vid];if(v&&v.password&&!isHashed(v.password)){v.password=await hashPw(v.password);changed=true;}}
-  if(changed)await dbSet('lh4:creds',JSON.stringify(cr));
+  if(changed)await supabase.from('app_data').upsert({key:'lh4:creds',value:JSON.stringify(cr),updated_at:new Date().toISOString()},{onConflict:'key'});
   return cr;
+}
+// Strip password hashes from creds before loading into React state; keep only hasPassword boolean
+function stripCredsPasswords(cr){
+  if(!cr)return cr;
+  return{
+    admins:(cr.admins||[]).map(a=>({...a,password:undefined,hasPassword:!!a.password})),
+    providers:Object.fromEntries(Object.entries(cr.providers||{}).map(([k,v])=>[k,{...v,password:undefined,hasPassword:!!v.password}])),
+    vas:Object.fromEntries(Object.entries(cr.vas||{}).map(([k,v])=>[k,v?{...v,password:undefined,hasPassword:!!v.password}:v]))
+  };
+}
+// Read creds from Supabase, apply updateFn, write back — never touches localStorage
+async function updateCredHash(updateFn){
+  let existing=null;
+  try{const{data}=await supabase.from('app_data').select('value').eq('key','lh4:creds').single();if(data)existing=JSON.parse(data.value);}catch(e){}
+  const cr=existing||{...DEF_CREDS};
+  const updated=updateFn(cr);
+  await supabase.from('app_data').upsert({key:'lh4:creds',value:JSON.stringify(updated),updated_at:new Date().toISOString()},{onConflict:'key'});
+}
+// Merge username/name changes from stripped state with existing password hashes in Supabase
+async function saveCredsDirect(stateCreds){
+  let existing=null;
+  try{const{data}=await supabase.from('app_data').select('value').eq('key','lh4:creds').single();if(data)existing=JSON.parse(data.value);}catch(e){}
+  const base=existing||{...DEF_CREDS};
+  const merged={
+    admins:(stateCreds.admins||[]).map(a=>({...a,password:(base.admins||[]).find(ba=>ba.id===a.id)?.password||undefined,hasPassword:undefined})),
+    providers:Object.fromEntries(Object.entries(stateCreds.providers||{}).map(([k,v])=>[k,{...v,password:(base.providers||{})[k]?.password||undefined,hasPassword:undefined}])),
+    vas:Object.fromEntries(Object.entries(stateCreds.vas||{}).map(([k,v])=>[k,v?{...v,password:(base.vas||{})[k]?.password||undefined,hasPassword:undefined}:v]))
+  };
+  await supabase.from('app_data').upsert({key:'lh4:creds',value:JSON.stringify(merged),updated_at:new Date().toISOString()},{onConflict:'key'});
 }
 
 function calcComm(entries,prov,catalog,hrs,retail){
@@ -2892,21 +2921,23 @@ export default function App(){
   useEffect(()=>{if(ready)dbSet('lh4:ret',JSON.stringify(retailData));},[retailData,ready]);
   useEffect(()=>{if(ready)dbSet('lh4:prov',JSON.stringify(providers));},[providers,ready]);
   useEffect(()=>{if(ready)dbSet('lh4:cat',JSON.stringify(catalog));},[catalog,ready]);
-  // Lazy-load adminCreds only after admin logs in — never sits in state during pre-login or staff sessions
+  // Lazy-load adminCreds only after admin logs in — passwords never sit in React state
   useEffect(()=>{
     if(!auth||auth.role!=='admin'||adminCreds!==null)return;
     (async()=>{
       const raw=await dbGet('lh4:creds');
       let cr=raw?JSON.parse(raw):DEF_CREDS;
       if(cr.adminUser&&!cr.admins){cr.admins=[{id:'admin1',name:'Admin',username:cr.adminUser,password:cr.adminPass}];}
-      setAdminCreds(cr);
+      cr=await migrateCredsIfNeeded(cr);
+      try{localStorage.removeItem('lh4:creds');}catch(e){}
+      setAdminCreds(stripCredsPasswords(cr));
     })();
   },[auth,adminCreds]);
-  // Save adminCreds when changed, skipping the initial load to avoid a redundant write
+  // Save username/name changes — merges with existing password hashes in Supabase, never touches localStorage
   useEffect(()=>{
     if(adminCreds===null)return;
     if(!adminCredsInitRef.current){adminCredsInitRef.current=true;return;}
-    dbSet('lh4:creds',JSON.stringify(adminCreds));
+    saveCredsDirect(adminCreds);
   },[adminCreds]);
   useEffect(()=>{if(ready)dbSet('lh4:expenses',JSON.stringify(expenses));},[expenses,ready]);
   useEffect(()=>{if(ready)dbSet('lh4:details',JSON.stringify(importantDetails));},[importantDetails,ready]);
@@ -3133,40 +3164,31 @@ export default function App(){
     if(!newProv.name)return;
     const id=uid();
     setProviders(p=>[...p,{...newProv,id}]);
+    const username=newProv.name.toLowerCase().split(' ')[0];
     const defPwHash=await hashPw('LH2025');
-    setAdminCreds(c=>({...(c||DEF_CREDS),providers:{...((c||DEF_CREDS).providers||{}),[id]:{username:newProv.name.toLowerCase().split(' ')[0],password:defPwHash}}}));
+    await updateCredHash(cr=>({...cr,providers:{...(cr.providers||{}),[id]:{username,password:defPwHash}}}));
+    setAdminCreds(c=>({...(c||DEF_CREDS),providers:{...((c||DEF_CREDS).providers||{}),[id]:{username,hasPassword:true}}}));
     setNewProv(blankP());setProvOpen(false);showToast('Provider added ✓');
   }
   async function setPwForProvider(provId,pw){
     if(!pw)return;
-    console.log('[setPwForProvider] saving for',provId);
     const hash=await hashPw(pw);
-    const pc=(adminCreds?.providers||{})[provId]||{};
-    const updated={...(adminCreds||DEF_CREDS),providers:{...((adminCreds||DEF_CREDS).providers||{}),[provId]:{...pc,password:hash}}};
-    setAdminCreds(updated);
-    await dbSet('lh4:creds',JSON.stringify(updated));
+    await updateCredHash(cr=>({...cr,providers:{...(cr.providers||{}),[provId]:{...((cr.providers||{})[provId]||{}),password:hash}}}));
+    setAdminCreds(c=>{const pc=(c?.providers||{})[provId]||{};return{...(c||DEF_CREDS),providers:{...((c||DEF_CREDS).providers||{}),[provId]:{...pc,password:undefined,hasPassword:true}}};});
     showToast('Password updated ✓');
   }
   async function setPwForVA(vaId,pw){
     if(!pw)return;
-    console.log('[setPwForVA] saving for',vaId);
     const hash=await hashPw(pw);
-    const vc=(adminCreds?.vas||{})[vaId]||{};
-    const updated={...(adminCreds||DEF_CREDS),vas:{...((adminCreds||DEF_CREDS).vas||{}),[vaId]:{...vc,password:hash}}};
-    setAdminCreds(updated);
-    await dbSet('lh4:creds',JSON.stringify(updated));
+    await updateCredHash(cr=>({...cr,vas:{...(cr.vas||{}),[vaId]:{...((cr.vas||{})[vaId]||{}),password:hash}}}));
+    setAdminCreds(c=>{const vc=(c?.vas||{})[vaId]||{};return{...(c||DEF_CREDS),vas:{...((c||DEF_CREDS).vas||{}),[vaId]:{...vc,password:undefined,hasPassword:true}}};});
     showToast('Password updated ✓');
   }
   async function setPwForAdmin(idx,pw){
     if(!pw)return;
-    console.log('[setPwForAdmin] saving for index',idx);
     const hash=await hashPw(pw);
-    const ac=adminCreds||DEF_CREDS;
-    const admins=[...(ac.admins||[])];
-    admins[idx]={...admins[idx],password:hash};
-    const updated={...ac,admins};
-    setAdminCreds(updated);
-    await dbSet('lh4:creds',JSON.stringify(updated));
+    await updateCredHash(cr=>{const admins=[...(cr.admins||[])];admins[idx]={...(admins[idx]||{}),password:hash};return{...cr,admins};});
+    setAdminCreds(c=>{const ac=c||DEF_CREDS;const admins=[...(ac.admins||[])];admins[idx]={...(admins[idx]||{}),password:undefined,hasPassword:true};return{...ac,admins};});
     showToast('Password updated ✓');
   }
   async function mergeVAData(newVAId,oldUsername){
@@ -3206,12 +3228,10 @@ export default function App(){
       setHoursPayroll(updHP);
       await dbSet('lh4:hrspay',JSON.stringify(updHP));
     }
-    // Remove old VA from adminCreds
+    // Remove old VA from adminCreds state and Supabase
     if((adminCreds?.vas||{})[oldVA.id]){
-      const updCreds={...(adminCreds||DEF_CREDS),vas:{...((adminCreds||DEF_CREDS).vas||{})}};
-      delete updCreds.vas[oldVA.id];
-      setAdminCreds(updCreds);
-      await dbSet('lh4:creds',JSON.stringify(updCreds));
+      setAdminCreds(c=>{const updCreds={...(c||DEF_CREDS),vas:{...((c||DEF_CREDS).vas||{})}};delete updCreds.vas[oldVA.id];return updCreds;});
+      await updateCredHash(cr=>{const updated={...cr,vas:{...(cr.vas||{})}};delete updated.vas[oldVA.id];return updated;});
     }
     setMergeInputs(p=>{const n={...p};delete n[newVAId];return n;});
     setShowMerge(p=>{const n={...p};delete n[newVAId];return n;});
@@ -3768,7 +3788,7 @@ export default function App(){
                         <div style={{fontSize:'9px',fontWeight:700,letterSpacing:'0.1em',textTransform:'uppercase',color:C.warn,marginBottom:'10px'}}>🔑 Staff Login Credentials</div>
                         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}>
                           <div><label style={{...lblS(),color:C.warn}}>Username</label><input value={pc.username} onChange={e=>setAdminCreds(c=>({...(c||DEF_CREDS),providers:{...((c||DEF_CREDS).providers||{}),[p.id]:{...pc,username:e.target.value}}}))} style={inp()}/></div>
-                          <PwField hasSaved={!!pc.password} labelStyle={{...lblS(),color:C.warn}} onSet={pw=>setPwForProvider(p.id,pw)}/>
+                          <PwField hasSaved={!!(pc.hasPassword||pc.password)} labelStyle={{...lblS(),color:C.warn}} onSet={pw=>setPwForProvider(p.id,pw)}/>
                         </div>
                         <div style={{fontSize:'10px',color:C.warn,marginTop:'8px'}}>⚠ Share credentials directly with the provider only. Username auto-saves; click Set to update password.</div>
                       </div>
@@ -3807,7 +3827,7 @@ export default function App(){
 
               {showVAFormAdmin&&(
                 <div style={{background:C.bg,borderRadius:'10px',padding:'14px',marginBottom:'14px',border:`1px solid ${C.border}`}}>
-                  <VAFormInline vaUsers={vaUsers} setVaUsers={setVaUsers} onSave={(id,name,username,pwHash)=>{setAdminCreds(c=>({...(c||DEF_CREDS),vas:{...((c||DEF_CREDS).vas||{}),[id]:{id,name,username,password:pwHash}}}));setShowVAFormAdmin(false);}} onCancel={()=>setShowVAFormAdmin(false)}/>
+                  <VAFormInline vaUsers={vaUsers} setVaUsers={setVaUsers} onSave={(id,name,username,pwHash)=>{updateCredHash(cr=>({...cr,vas:{...(cr.vas||{}),[id]:{id,name,username,password:pwHash}}}));setAdminCreds(c=>({...(c||DEF_CREDS),vas:{...((c||DEF_CREDS).vas||{}),[id]:{id,name,username,hasPassword:!!pwHash}}}));setShowVAFormAdmin(false);}} onCancel={()=>setShowVAFormAdmin(false)}/>
                 </div>
               )}
 
@@ -3832,7 +3852,7 @@ export default function App(){
                         <div><label style={lblS()}>Role</label><input value={va.role||''} onChange={e=>setVaUsers(p=>p.map(x=>x.id===va.id?{...x,role:e.target.value}:x))} style={inp()}/></div>
                         <div><label style={lblS()}>Hourly Rate ($/hr)</label><input type="number" value={va.hourlyRate||0} onChange={e=>setVaUsers(p=>p.map(x=>x.id===va.id?{...x,hourlyRate:+e.target.value}:x))} style={inp()}/></div>
                         <div><label style={lblS()}>Username</label><input value={pc.username||''} onChange={e=>setAdminCreds(c=>({...(c||DEF_CREDS),vas:{...((c||DEF_CREDS).vas||{}),[va.id]:{...pc,username:e.target.value}}}))} style={inp()}/></div>
-                        <PwField hasSaved={!!pc.password} onSet={pw=>setPwForVA(va.id,pw)}/>
+                        <PwField hasSaved={!!(pc.hasPassword||pc.password)} onSet={pw=>setPwForVA(va.id,pw)}/>
                       </div>
                       <div style={{marginTop:'10px',paddingTop:'10px',borderTop:`1px dashed ${C.border}`}}>
                         <button style={Btn('secondary',{fontSize:'11px',padding:'5px 12px'})} onClick={()=>setShowMerge(m=>({...m,[va.id]:!m[va.id]}))}>
@@ -3872,14 +3892,14 @@ export default function App(){
                   <div style={lblS()}>🔐 Admin Accounts</div>
                   <div style={{fontSize:'10px',color:C.muted,marginTop:'2px'}}>Admins have full access to all data, pay rates, and settings. Keep credentials secure.</div>
                 </div>
-                <button style={Btn('primary',{fontSize:'11px'})} onClick={async()=>{const defPwHash=await hashPw('LH2025');setAdminCreds(c=>({...(c||DEF_CREDS),admins:[...((c||DEF_CREDS).admins||[]),{id:uid(),name:'New Admin',username:'admin'+Date.now(),password:defPwHash}]}));}}>+ Add Admin</button>
+                <button style={Btn('primary',{fontSize:'11px'})} onClick={async()=>{const newId=uid();const uname='admin'+Date.now();const defPwHash=await hashPw('LH2025');await updateCredHash(cr=>({...cr,admins:[...(cr.admins||[]),{id:newId,name:'New Admin',username:uname,password:defPwHash}]}));setAdminCreds(c=>({...(c||DEF_CREDS),admins:[...((c||DEF_CREDS).admins||[]),{id:newId,name:'New Admin',username:uname,hasPassword:true}]}));}}>+ Add Admin</button>
               </div>
               {(adminCreds?.admins||[]).map((admin,i)=>(
                 <div key={admin.id} style={{background:C.bg,borderRadius:'10px',padding:'14px',marginBottom:'10px',border:`1px solid ${C.border}`}}>
                   <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr auto',gap:'10px',alignItems:'end'}}>
                     <div><label style={lblS()}>Name</label><input value={admin.name} onChange={e=>setAdminCreds(c=>({...(c||DEF_CREDS),admins:(c||DEF_CREDS).admins.map((a,j)=>j===i?{...a,name:e.target.value}:a)}))} style={inp()}/></div>
                     <div><label style={lblS()}>Username</label><input value={admin.username} onChange={e=>setAdminCreds(c=>({...(c||DEF_CREDS),admins:(c||DEF_CREDS).admins.map((a,j)=>j===i?{...a,username:e.target.value}:a)}))} style={inp()}/></div>
-                    <PwField hasSaved={!!admin.password} onSet={pw=>setPwForAdmin(i,pw)}/>
+                    <PwField hasSaved={!!(admin.hasPassword||admin.password)} onSet={pw=>setPwForAdmin(i,pw)}/>
                     <button disabled={(adminCreds?.admins||[]).length<=1} onClick={()=>setAdminCreds(c=>({...(c||DEF_CREDS),admins:(c||DEF_CREDS).admins.filter((_,j)=>j!==i)}))} style={{...Btn('danger',{padding:'8px 10px',fontSize:'11px'}),opacity:(adminCreds?.admins||[]).length<=1?0.4:1}}>Remove</button>
                   </div>
                 </div>
@@ -3890,7 +3910,7 @@ export default function App(){
         )}
 
         {view==='expenses'&&isAdmin&&<ExpensesView expenses={expenses} setExpenses={setExpenses} month={month} payroll={payroll} setPayroll={setPayroll} providers={providers} logData={logData} hoursData={hoursData} retailData={retailData} catalog={catalog}/>}
-        {view==='projects'&&isAdmin&&<ProjectsView projects={projects} setProjects={setProjects} providers={providers} vaUsers={vaUsers} setVaUsers={setVaUsers} onSaveVACreds={(id,name,username,pwHash)=>setAdminCreds(c=>({...(c||DEF_CREDS),vas:{...((c||DEF_CREDS).vas||{}),[id]:{id,name,username,password:pwHash}}}))} emailConfig={emailConfig} month={month} setMonth={setMonth}/>}
+        {view==='projects'&&isAdmin&&<ProjectsView projects={projects} setProjects={setProjects} providers={providers} vaUsers={vaUsers} setVaUsers={setVaUsers} onSaveVACreds={(id,name,username,pwHash)=>{updateCredHash(cr=>({...cr,vas:{...(cr.vas||{}),[id]:{id,name,username,password:pwHash}}}));setAdminCreds(c=>({...(c||DEF_CREDS),vas:{...((c||DEF_CREDS).vas||{}),[id]:{id,name,username,hasPassword:!!pwHash}}}))}} emailConfig={emailConfig} month={month} setMonth={setMonth}/>}
         {view==='myprojects'&&auth?.role!=='admin'&&auth?.role!=='va'&&<StaffProjectsView projects={projects} setProjects={setProjects} provId={auth?.providerId} provName={prov?.name} catalog={catalog} clients={clients} month={month}/> }
         {view==='tasks'&&auth?.role!=='admin'&&auth?.role!=='va'&&<TasksView projects={projects} setProjects={setProjects} provId={auth?.providerId} provName={prov?.name} month={month} importantDetails={importantDetails} setImportantDetails={setImportantDetails} emailConfig={emailConfig} providerName={prov?.name} kpiData={kpiData} setKpiData={setKpiData}/>}
         {auth?.role==='va'&&<VAView projects={projects} setProjects={setProjects} auth={auth} vaUsers={vaUsers} setVaUsers={setVaUsers} month={month} importantDetails={importantDetails} setImportantDetails={setImportantDetails} emailConfig={emailConfig} hoursPayroll={hoursPayroll}/>}
